@@ -1,0 +1,34 @@
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+  color: #1b1a17;
+  background: #f4f1ea;
+  font-family: var(--font-body), sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:root {
+  --retro-mint: #75c8ae;
+  --retro-cocoa: #5a3d2b;
+  --retro-cream: #ffecb4;
+  --retro-ember: #e5771e;
+  --retro-gold: #f4a127;
+  --retro-ink: #1b1a17;
+  --retro-paper: #f4f1ea;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
