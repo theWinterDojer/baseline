@@ -278,6 +278,7 @@ export default function Home() {
         <header className={styles.header}>
           <div>
             <div className={styles.brand}>Baseline</div>
+            <div className={styles.tagline}>Invest in each other's success.</div>
           </div>
           {session ? (
             <div className={styles.buttonRow}>

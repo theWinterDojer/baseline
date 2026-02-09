@@ -88,6 +88,13 @@
   color: #1b1a17;
 }
 
+.tagline {
+  font-size: 13px;
+  color: #5a5142;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .backLink {
   font-size: 13px;
   text-transform: uppercase;

@@ -157,6 +157,7 @@ export default function GoalPage() {
         <header className={styles.header}>
           <div>
             <div className={styles.brand}>Baseline</div>
+            <div className={styles.tagline}>Invest in each other's success.</div>
             <Link href="/" className={styles.backLink}>
               Back to dashboard
             </Link>
