@@ -6,6 +6,7 @@ alter table public.check_ins enable row level security;
 alter table public.pledges enable row level security;
 alter table public.sponsor_criteria enable row level security;
 alter table public.comments enable row level security;
+alter table public.events enable row level security;
 
 -- Profiles
 create policy "profiles_select_public"
@@ -214,3 +215,25 @@ create policy "comments_delete_owner"
 on public.comments
 for delete
 using (auth.uid() = author_id);
+
+-- Events
+create policy "events_select_recipient"
+on public.events
+for select
+using (auth.uid() = recipient_id);
+
+create policy "events_insert_actor"
+on public.events
+for insert
+with check (auth.uid() = actor_id);
+
+create policy "events_update_recipient"
+on public.events
+for update
+using (auth.uid() = recipient_id)
+with check (auth.uid() = recipient_id);
+
+create policy "events_delete_recipient"
+on public.events
+for delete
+using (auth.uid() = recipient_id);

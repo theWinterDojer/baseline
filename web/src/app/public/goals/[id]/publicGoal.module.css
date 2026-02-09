@@ -63,7 +63,6 @@
   filter: blur(2px);
 }
 
-
 .container {
   position: relative;
   z-index: 1;
@@ -118,6 +117,12 @@
   color: #1f1b16;
 }
 
+.description {
+  font-size: 15px;
+  color: #4f4639;
+  line-height: 1.5;
+}
+
 .metaRow {
   display: flex;
   flex-wrap: wrap;
@@ -161,9 +166,9 @@
   color: #5f5547;
 }
 
-.section {
-  display: grid;
-  gap: 12px;
+.progressMeta {
+  font-size: 12px;
+  color: #7a6d5a;
 }
 
 .sectionTitle {
@@ -190,7 +195,6 @@
   color: #6a5f4f;
 }
 
-.input,
 .textarea {
   border: 1px solid rgba(90, 61, 43, 0.25);
   border-radius: 14px;
@@ -198,9 +202,6 @@
   background: rgba(255, 255, 255, 0.85);
   font-size: 14px;
   color: #1b1a17;
-}
-
-.textarea {
   min-height: 90px;
   resize: vertical;
 }
@@ -223,52 +224,6 @@
   font-size: 14px;
   letter-spacing: 0.02em;
   cursor: pointer;
-}
-
-.buttonGhost {
-  background: transparent;
-  border: 1px solid rgba(90, 61, 43, 0.28);
-  border-radius: 999px;
-  height: 38px;
-  padding: 0 18px;
-  font-weight: 500;
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #5a3d2b;
-  cursor: pointer;
-}
-
-.linkButton {
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.visibilityRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.visibilityText {
-  display: grid;
-  gap: 6px;
-}
-
-.visibilityLabel {
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #6a5f4f;
-}
-
-.visibilityHint {
-  font-size: 13px;
-  color: #6b5f4a;
 }
 
 .message {

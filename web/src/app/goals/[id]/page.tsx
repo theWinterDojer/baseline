@@ -5,14 +5,17 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
+import { logEvent } from "@/lib/eventLogger";
 import styles from "./goal.module.css";
 
 type GoalModelType = "count" | "time" | "milestone";
 
 type Goal = {
   id: string;
+  user_id: string;
   title: string;
   description: string | null;
+  start_at: string | null;
   deadline_at: string;
   model_type: GoalModelType;
   target_value: number | null;
@@ -43,6 +46,9 @@ export default function GoalPage() {
   const [proofHash, setProofHash] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [privacyUpdating, setPrivacyUpdating] = useState(false);
+  const [privacyMessage, setPrivacyMessage] = useState<string | null>(null);
+  const [privacyError, setPrivacyError] = useState<string | null>(null);
 
   const walletAddress = session?.user?.user_metadata?.wallet_address as
     | string
@@ -52,6 +58,8 @@ export default function GoalPage() {
     if (!goal?.target_value || goal.target_value <= 0) return 0;
     return Math.min(Math.round((checkIns.length / goal.target_value) * 100), 100);
   }, [goal, checkIns.length]);
+
+  const isOwner = Boolean(session?.user?.id && goal?.user_id === session.user.id);
 
   useEffect(() => {
     let mounted = true;
@@ -78,7 +86,7 @@ export default function GoalPage() {
     const { data, error: goalError } = await supabase
       .from("goals")
       .select(
-        "id,title,description,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
+        "id,user_id,title,description,start_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
       )
       .eq("id", id)
       .single();
@@ -143,12 +151,67 @@ export default function GoalPage() {
       return;
     }
 
+    if (goal) {
+      const { error: eventError } = await logEvent({
+        eventType: "check_in.created",
+        actorId: session.user.id,
+        recipientId: goal.user_id,
+        goalId: goal.id,
+        data: {
+          noteLength: note.trim().length,
+        },
+      });
+
+      if (eventError) {
+        console.warn("Failed to log check_in.created event", eventError);
+      }
+    }
+
     setNote("");
     setProofHash("");
     setSubmitMessage("Check-in saved.");
     if (goalId) {
       await loadGoal(goalId);
     }
+  };
+
+  const handleTogglePrivacy = async () => {
+    if (!goal || !session?.user?.id) return;
+    const nextPrivacy = goal.privacy === "public" ? "private" : "public";
+
+    if (
+      nextPrivacy === "public" &&
+      !window.confirm("Make this goal public so others can view and sponsor it?")
+    ) {
+      return;
+    }
+
+    setPrivacyUpdating(true);
+    setPrivacyError(null);
+    setPrivacyMessage(null);
+
+    const { data, error: updateError } = await supabase
+      .from("goals")
+      .update({ privacy: nextPrivacy })
+      .eq("id", goal.id)
+      .select(
+        "id,user_id,title,description,start_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
+      )
+      .single();
+
+    if (updateError) {
+      setPrivacyError(updateError.message);
+      setPrivacyUpdating(false);
+      return;
+    }
+
+    setGoal(data);
+    setPrivacyMessage(
+      nextPrivacy === "public"
+        ? "Goal is now public."
+        : "Goal is now private."
+    );
+    setPrivacyUpdating(false);
   };
 
   return (
@@ -187,6 +250,11 @@ export default function GoalPage() {
                 <span className={styles.pill}>{goal.model_type}</span>
                 <span className={styles.pill}>{goal.privacy}</span>
                 <span className={styles.pill}>{goal.status}</span>
+                {goal.start_at ? (
+                  <span className={styles.pill}>
+                    Starts {new Date(goal.start_at).toLocaleDateString()}
+                  </span>
+                ) : null}
                 <span className={styles.pill}>
                   Due {new Date(goal.deadline_at).toLocaleDateString()}
                 </span>
@@ -207,6 +275,50 @@ export default function GoalPage() {
                 </div>
               </div>
             </section>
+
+            {isOwner ? (
+              <section className={styles.card}>
+                <div className={styles.sectionTitle}>Visibility</div>
+                <div className={styles.visibilityRow}>
+                  <div className={styles.visibilityText}>
+                    <div className={styles.visibilityLabel}>
+                      {goal.privacy === "public" ? "Public goal" : "Private goal"}
+                    </div>
+                    <div className={styles.visibilityHint}>
+                      Public goals can receive comments and sponsorship.
+                    </div>
+                  </div>
+                  <div className={styles.buttonRow}>
+                    {goal.privacy === "public" ? (
+                      <Link
+                        href={`/public/goals/${goal.id}`}
+                        className={`${styles.buttonGhost} ${styles.linkButton}`}
+                      >
+                        View public page
+                      </Link>
+                    ) : null}
+                    <button
+                      className={styles.buttonPrimary}
+                      type="button"
+                      onClick={handleTogglePrivacy}
+                      disabled={privacyUpdating}
+                    >
+                      {privacyUpdating
+                        ? "Updating..."
+                        : goal.privacy === "public"
+                          ? "Make private"
+                          : "Make public"}
+                    </button>
+                  </div>
+                </div>
+                {privacyError ? <div className={styles.message}>{privacyError}</div> : null}
+                {privacyMessage ? (
+                  <div className={`${styles.message} ${styles.success}`}>
+                    {privacyMessage}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
 
             <section className={styles.card}>
               <div className={styles.sectionTitle}>Add check-in</div>

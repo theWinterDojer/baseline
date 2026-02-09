@@ -28,6 +28,30 @@ begin
 end;
 $$;
 
+create or replace function public.increment_goal_check_in_count()
+returns trigger
+language plpgsql
+as $$
+begin
+  update public.goals
+  set check_in_count = check_in_count + 1
+  where id = new.goal_id;
+  return new;
+end;
+$$;
+
+create or replace function public.decrement_goal_check_in_count()
+returns trigger
+language plpgsql
+as $$
+begin
+  update public.goals
+  set check_in_count = greatest(check_in_count - 1, 0)
+  where id = old.goal_id;
+  return old;
+end;
+$$;
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text,
@@ -42,6 +66,7 @@ create table if not exists public.goals (
   user_id uuid not null references auth.users(id) on delete cascade,
   title text not null,
   description text,
+  start_at timestamptz,
   deadline_at timestamptz not null,
   model_type public.goal_model_type not null default 'count',
   target_value integer,
@@ -49,11 +74,16 @@ create table if not exists public.goals (
   milestones jsonb,
   privacy public.goal_privacy not null default 'private',
   status public.goal_status not null default 'active',
+  check_in_count integer not null default 0,
   tags text[] not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint goals_target_value_positive check (target_value is null or target_value > 0)
 );
+
+alter table public.goals
+  add column if not exists start_at timestamptz,
+  add column if not exists check_in_count integer not null default 0;
 
 create table if not exists public.check_ins (
   id uuid primary key default gen_random_uuid(),
@@ -100,6 +130,18 @@ create table if not exists public.comments (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.events (
+  id uuid primary key default gen_random_uuid(),
+  event_type text not null,
+  actor_id uuid not null references auth.users(id) on delete cascade,
+  recipient_id uuid not null references auth.users(id) on delete cascade,
+  goal_id uuid references public.goals(id) on delete cascade,
+  pledge_id uuid references public.pledges(id) on delete set null,
+  data jsonb not null default '{}'::jsonb,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists goals_user_id_idx on public.goals(user_id);
 create index if not exists goals_privacy_idx on public.goals(privacy);
 create index if not exists goals_status_idx on public.goals(status);
@@ -121,6 +163,12 @@ create index if not exists comments_goal_id_idx on public.comments(goal_id);
 create index if not exists comments_author_id_idx on public.comments(author_id);
 create index if not exists comments_created_at_idx on public.comments(created_at);
 
+create index if not exists events_recipient_id_idx on public.events(recipient_id);
+create index if not exists events_actor_id_idx on public.events(actor_id);
+create index if not exists events_goal_id_idx on public.events(goal_id);
+create index if not exists events_pledge_id_idx on public.events(pledge_id);
+create index if not exists events_created_at_idx on public.events(created_at);
+
 create trigger set_profiles_updated_at
 before update on public.profiles
 for each row execute function public.set_updated_at();
@@ -132,3 +180,16 @@ for each row execute function public.set_updated_at();
 create trigger set_pledges_updated_at
 before update on public.pledges
 for each row execute function public.set_updated_at();
+
+create trigger check_ins_increment_goal_count
+after insert on public.check_ins
+for each row execute function public.increment_goal_check_in_count();
+
+create trigger check_ins_decrement_goal_count
+after delete on public.check_ins
+for each row execute function public.decrement_goal_check_in_count();
+
+update public.goals g
+set check_in_count = coalesce((
+  select count(*) from public.check_ins c where c.goal_id = g.id
+), 0);
