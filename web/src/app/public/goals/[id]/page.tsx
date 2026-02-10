@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
+import { BASELINE_TAGLINE } from "@/lib/brand";
+import type { GoalModelType } from "@/lib/goalTypes";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./publicGoal.module.css";
-
-type GoalModelType = "count" | "time" | "milestone";
 
 type Goal = {
   id: string;
@@ -106,7 +106,7 @@ export default function PublicGoalPage() {
     };
   }, []);
 
-  const loadComments = async (id: string) => {
+  const loadComments = useCallback(async (id: string) => {
     setCommentsLoading(true);
     setCommentsError(null);
 
@@ -124,9 +124,9 @@ export default function PublicGoalPage() {
     }
 
     setCommentsLoading(false);
-  };
+  }, []);
 
-  const loadGoal = async (id: string) => {
+  const loadGoal = useCallback(async (id: string) => {
     setLoading(true);
     setError(null);
 
@@ -156,9 +156,9 @@ export default function PublicGoalPage() {
       .maybeSingle();
 
     setCompletionNft(nftData ?? null);
-  };
+  }, [loadComments]);
 
-  const loadSponsorPledges = async (id: string, userId: string) => {
+  const loadSponsorPledges = useCallback(async (id: string, userId: string) => {
     const { data, error: pledgeError } = await supabase
       .from("pledges")
       .select(
@@ -175,17 +175,29 @@ export default function PublicGoalPage() {
     }
 
     setSponsorPledges(data ?? []);
-  };
+  }, []);
 
   useEffect(() => {
     if (!goalId) return;
-    void loadGoal(goalId);
-  }, [goalId]);
+    const timeoutId = setTimeout(() => {
+      void loadGoal(goalId);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [goalId, loadGoal]);
 
   useEffect(() => {
     if (!goalId || !session?.user?.id) return;
-    void loadSponsorPledges(goalId, session.user.id);
-  }, [goalId, session?.user?.id]);
+    const timeoutId = setTimeout(() => {
+      void loadSponsorPledges(goalId, session.user.id);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [goalId, session?.user?.id, loadSponsorPledges]);
 
   useEffect(() => {
     if (!goal?.completed_at || sponsorPledges.length === 0) return;
@@ -213,7 +225,7 @@ export default function PublicGoalPage() {
     };
 
     void settleOverdue();
-  }, [goal?.completed_at, sponsorPledges, goalId, session?.user?.id]);
+  }, [goal?.completed_at, sponsorPledges, goalId, session?.user?.id, loadSponsorPledges]);
 
   const handleCommentSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -366,7 +378,7 @@ export default function PublicGoalPage() {
         <header className={styles.header}>
           <div>
             <div className={styles.brand}>Baseline</div>
-            <div className={styles.tagline}>Invest in each other's success.</div>
+            <div className={styles.tagline}>{BASELINE_TAGLINE}</div>
             <Link href="/" className={styles.backLink}>
               Back to Baseline
             </Link>
@@ -545,22 +557,8 @@ export default function PublicGoalPage() {
                 ) : (
                   <div className={styles.list}>
                     {sponsorPledges.map((pledge) => {
-                      const completedAt = goal?.completed_at
-                        ? new Date(goal.completed_at)
-                        : null;
-                      const daysLeft =
-                        completedAt && pledge.status === "accepted"
-                          ? Math.max(
-                              0,
-                              Math.ceil(
-                                (completedAt.getTime() +
-                                  7 * 24 * 60 * 60 * 1000 -
-                                  Date.now()) /
-                                  (24 * 60 * 60 * 1000)
-                              )
-                            )
-                          : null;
-                      const approvalExpired = daysLeft !== null && daysLeft <= 0;
+                      const approvalExpired =
+                        pledge.status === "settled" && !pledge.approval_at;
 
                       return (
                         <div key={pledge.id} className={styles.listItem}>
@@ -575,9 +573,7 @@ export default function PublicGoalPage() {
                           </div>
                           {goal?.completed_at && pledge.status === "accepted" ? (
                             <div className={styles.listMeta}>
-                              {approvalExpired
-                                ? "Approval window ended."
-                                : `Approval window: ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`}
+                              Approval window is open for 7 days after completion.
                             </div>
                           ) : null}
                           <div className={styles.buttonRow}>

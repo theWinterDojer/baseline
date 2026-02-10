@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
+import { BASELINE_TAGLINE } from "@/lib/brand";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./offers.module.css";
 
@@ -130,21 +131,33 @@ export default function GoalOffersPage() {
 
   useEffect(() => {
     if (!goalId) return;
-    setLoading(true);
-    setError(null);
+    const timeoutId = setTimeout(() => {
+      setLoading(true);
+      setError(null);
 
-    const loadAll = async () => {
-      await loadGoal(goalId);
-      await loadPledges(goalId);
-      setLoading(false);
+      const loadAll = async () => {
+        await loadGoal(goalId);
+        await loadPledges(goalId);
+        setLoading(false);
+      };
+
+      void loadAll();
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
     };
-
-    void loadAll();
   }, [goalId]);
 
   useEffect(() => {
     if (pledges.length === 0) return;
-    void expireOverdueOffers(pledges);
+    const timeoutId = setTimeout(() => {
+      void expireOverdueOffers(pledges);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
   }, [pledges]);
 
   useEffect(() => {
@@ -188,13 +201,14 @@ export default function GoalOffersPage() {
     setActionMessage(null);
     setActionError(null);
     setAcceptingId(pledgeId);
+    const acceptedAt = new Date().toISOString();
 
     const { error: updateError } = await supabase
       .from("pledges")
       .update({
         status: "accepted",
-        accepted_at: new Date().toISOString(),
-        escrow_tx: `mock:${Date.now()}`,
+        accepted_at: acceptedAt,
+        escrow_tx: `mock:${acceptedAt}`,
       })
       .eq("id", pledgeId);
 
@@ -217,7 +231,7 @@ export default function GoalOffersPage() {
         <header className={styles.header}>
           <div>
             <div className={styles.brand}>Baseline</div>
-            <div className={styles.tagline}>Invest in each other's success.</div>
+            <div className={styles.tagline}>{BASELINE_TAGLINE}</div>
             <Link href={`/goals/${goalId ?? ""}`} className={styles.backLink}>
               Back to goal
             </Link>

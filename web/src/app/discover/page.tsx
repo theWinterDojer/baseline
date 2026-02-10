@@ -1,11 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { BASELINE_TAGLINE } from "@/lib/brand";
+import type { GoalModelType } from "@/lib/goalTypes";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./discover.module.css";
 
-type GoalModelType = "count" | "time" | "milestone";
+type GoalSummary = {
+  id: string;
+  title: string;
+  description: string | null;
+  deadline_at: string;
+  created_at: string;
+  model_type: GoalModelType;
+  target_value: number | null;
+  target_unit: string | null;
+  check_in_count: number;
+};
 
 type DiscoveryRow = {
   goal_id: string;
@@ -15,18 +27,25 @@ type DiscoveryRow = {
   comment_count_7d: number;
   verified_sponsor_count: number;
   updated_at: string;
-  goals: {
-    id: string;
-    title: string;
-    description: string | null;
-    deadline_at: string;
-    created_at: string;
-    model_type: GoalModelType;
-    target_value: number | null;
-    target_unit: string | null;
-    check_in_count: number;
-  } | null;
+  goals: GoalSummary | null;
 };
+
+type RawDiscoveryRow = Omit<DiscoveryRow, "goals"> & {
+  goals: GoalSummary | GoalSummary[] | null;
+};
+
+const toGoalSummary = (
+  goal: GoalSummary | GoalSummary[] | null | undefined
+): GoalSummary | null => {
+  if (!goal) return null;
+  return Array.isArray(goal) ? (goal[0] ?? null) : goal;
+};
+
+const normalizeDiscoveryRows = (data: RawDiscoveryRow[]): DiscoveryRow[] =>
+  data.map((row) => ({
+    ...row,
+    goals: toGoalSummary(row.goals),
+  }));
 
 const views = [
   { id: "trending", label: "Trending" },
@@ -43,7 +62,7 @@ export default function DiscoverPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadTrending = async () => {
+  const loadTrending = useCallback(async (): Promise<DiscoveryRow[]> => {
     const { data, error } = await supabase
       .from("discovery_rankings")
       .select(
@@ -53,10 +72,10 @@ export default function DiscoverPage() {
       .limit(50);
 
     if (error) throw error;
-    return data ?? [];
-  };
+    return normalizeDiscoveryRows((data ?? []) as RawDiscoveryRow[]);
+  }, []);
 
-  const loadTopSponsored = async () => {
+  const loadTopSponsored = useCallback(async (): Promise<DiscoveryRow[]> => {
     const { data, error } = await supabase
       .from("discovery_rankings")
       .select(
@@ -66,10 +85,10 @@ export default function DiscoverPage() {
       .limit(50);
 
     if (error) throw error;
-    return data ?? [];
-  };
+    return normalizeDiscoveryRows((data ?? []) as RawDiscoveryRow[]);
+  }, []);
 
-  const loadNewest = async () => {
+  const loadNewest = useCallback(async (): Promise<DiscoveryRow[]> => {
     const { data, error } = await supabase
       .from("goals")
       .select(
@@ -88,11 +107,11 @@ export default function DiscoverPage() {
       comment_count_7d: 0,
       verified_sponsor_count: 0,
       updated_at: new Date().toISOString(),
-      goals: goal,
+      goals: goal as GoalSummary,
     }));
-  };
+  }, []);
 
-  const loadNearCompletion = async () => {
+  const loadNearCompletion = useCallback(async (): Promise<DiscoveryRow[]> => {
     const { data, error } = await supabase
       .from("goals")
       .select(
@@ -105,7 +124,7 @@ export default function DiscoverPage() {
 
     if (error) throw error;
 
-    const items = (data ?? []).map((goal) => ({
+    const items: DiscoveryRow[] = (data ?? []).map((goal) => ({
       goal_id: goal.id,
       score: 0,
       total_sponsored_cents: 0,
@@ -113,7 +132,7 @@ export default function DiscoverPage() {
       comment_count_7d: 0,
       verified_sponsor_count: 0,
       updated_at: new Date().toISOString(),
-      goals: goal,
+      goals: goal as GoalSummary,
     }));
 
     return items
@@ -127,7 +146,7 @@ export default function DiscoverPage() {
         return pctB - pctA;
       })
       .slice(0, 50);
-  };
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -152,7 +171,7 @@ export default function DiscoverPage() {
     };
 
     void load();
-  }, [activeView]);
+  }, [activeView, loadNearCompletion, loadNewest, loadTopSponsored, loadTrending]);
 
   const viewHint = useMemo(() => {
     switch (activeView) {
@@ -175,7 +194,7 @@ export default function DiscoverPage() {
         <header className={styles.header}>
           <div>
             <div className={styles.brand}>Baseline</div>
-            <div className={styles.tagline}>Invest in each other's success.</div>
+            <div className={styles.tagline}>{BASELINE_TAGLINE}</div>
             <Link href="/" className={styles.backLink}>
               Back to dashboard
             </Link>

@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   let siweMessage: SiweMessage;
   try {
     siweMessage = new SiweMessage(message);
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "Invalid SIWE message." }, { status: 400 });
   }
 
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     if (!verifyResult.success) {
       return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
     }
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "SIWE verification failed." }, { status: 401 });
   }
 

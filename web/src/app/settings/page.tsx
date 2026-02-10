@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
+import { BASELINE_TAGLINE } from "@/lib/brand";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./settings.module.css";
 
@@ -70,7 +71,7 @@ export default function SettingsPage() {
         <header className={styles.header}>
           <div>
             <div className={styles.brand}>Baseline</div>
-            <div className={styles.tagline}>Invest in each other's success.</div>
+            <div className={styles.tagline}>{BASELINE_TAGLINE}</div>
             <Link href="/" className={styles.backLink}>
               Back to dashboard
             </Link>

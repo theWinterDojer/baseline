@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, Manrope } from "next/font/google";
 import "./globals.css";
 import Providers from "./providers";
@@ -17,11 +17,14 @@ export const metadata: Metadata = {
   title: "Baseline",
   description: "Habit and goal support on Base.",
   manifest: "/manifest.json",
-  themeColor: "#e5771e",
   icons: {
     icon: "/icons/baseline-192.svg",
     apple: "/icons/baseline-192.svg",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#e5771e",
 };
 
 export default function RootLayout({

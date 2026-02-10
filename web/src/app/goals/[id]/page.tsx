@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
+import { BASELINE_TAGLINE } from "@/lib/brand";
 import { supabase } from "@/lib/supabaseClient";
 import { logEvent } from "@/lib/eventLogger";
 import { mockCompletionNft } from "@/lib/contracts";
+import type { GoalModelType } from "@/lib/goalTypes";
 import styles from "./goal.module.css";
-
-type GoalModelType = "count" | "time" | "milestone";
 
 type Goal = {
   id: string;
@@ -42,6 +42,21 @@ type CompletionNft = {
   status: string;
   created_at: string;
 };
+
+const formatDateInput = (value: string | null) => {
+  if (!value) return "";
+  return new Date(value).toISOString().slice(0, 10);
+};
+
+const toEditForm = (nextGoal: Goal) => ({
+  title: nextGoal.title ?? "",
+  hasStartDate: Boolean(nextGoal.start_at),
+  startDate: formatDateInput(nextGoal.start_at),
+  deadline: formatDateInput(nextGoal.deadline_at),
+  modelType: nextGoal.model_type,
+  targetValue: nextGoal.target_value ? String(nextGoal.target_value) : "",
+  targetUnit: nextGoal.target_unit ?? "",
+});
 
 export default function GoalPage() {
   const params = useParams<{ id: string }>();
@@ -91,11 +106,6 @@ export default function GoalPage() {
 
   const isOwner = Boolean(session?.user?.id && goal?.user_id === session.user.id);
 
-  const formatDateInput = (value: string | null) => {
-    if (!value) return "";
-    return new Date(value).toISOString().slice(0, 10);
-  };
-
   useEffect(() => {
     let mounted = true;
     supabase.auth.getSession().then(({ data }) => {
@@ -115,7 +125,7 @@ export default function GoalPage() {
     };
   }, []);
 
-  const loadGoal = async (id: string) => {
+  const loadGoal = useCallback(async (id: string) => {
     setLoading(true);
     setError(null);
     const { data, error: goalError } = await supabase
@@ -135,6 +145,7 @@ export default function GoalPage() {
     }
 
     setGoal(data);
+    setEditForm(toEditForm(data));
 
     const { count, error: pledgeError } = await supabase
       .from("pledges")
@@ -175,25 +186,18 @@ export default function GoalPage() {
     }
 
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     if (!goalId) return;
-    void loadGoal(goalId);
-  }, [goalId]);
+    const timeoutId = setTimeout(() => {
+      void loadGoal(goalId);
+    }, 0);
 
-  useEffect(() => {
-    if (!goal) return;
-    setEditForm({
-      title: goal.title ?? "",
-      hasStartDate: Boolean(goal.start_at),
-      startDate: formatDateInput(goal.start_at),
-      deadline: formatDateInput(goal.deadline_at),
-      modelType: goal.model_type,
-      targetValue: goal.target_value ? String(goal.target_value) : "",
-      targetUnit: goal.target_unit ?? "",
-    });
-  }, [goal]);
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [goalId, loadGoal]);
 
   const handleCheckIn = async (event: FormEvent) => {
     event.preventDefault();
@@ -288,6 +292,7 @@ export default function GoalPage() {
     }
 
     setGoal(data);
+    setEditForm(toEditForm(data));
     setPrivacyMessage(
       nextPrivacy === "public"
         ? "Goal is now public."
@@ -326,6 +331,7 @@ export default function GoalPage() {
     }
 
     setGoal(data);
+    setEditForm(toEditForm(data));
     setCompletionMessage("Goal marked complete.");
     setCompletionUpdating(false);
   };
@@ -446,6 +452,7 @@ export default function GoalPage() {
     }
 
     setGoal(data);
+    setEditForm(toEditForm(data));
     setEditMessage("Goal updated.");
     setEditUpdating(false);
   };
@@ -456,7 +463,7 @@ export default function GoalPage() {
         <header className={styles.header}>
           <div>
             <div className={styles.brand}>Baseline</div>
-            <div className={styles.tagline}>Invest in each other's success.</div>
+            <div className={styles.tagline}>{BASELINE_TAGLINE}</div>
             <Link href="/" className={styles.backLink}>
               Back to dashboard
             </Link>

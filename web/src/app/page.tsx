@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
@@ -8,9 +8,9 @@ import { SiweMessage } from "siwe";
 import { useAccount, useChainId, useDisconnect, useSignMessage } from "wagmi";
 import { supabase } from "@/lib/supabaseClient";
 import { logEvent } from "@/lib/eventLogger";
+import { BASELINE_TAGLINE } from "@/lib/brand";
+import type { GoalModelType } from "@/lib/goalTypes";
 import styles from "./page.module.css";
-
-type GoalModelType = "count" | "time" | "milestone";
 
 type Goal = {
   id: string;
@@ -126,7 +126,7 @@ export default function Home() {
   }, [isConnected, session]);
 
 
-  const signInWithWallet = async () => {
+  const signInWithWallet = useCallback(async () => {
     if (!address) {
       setWalletAuthError("Connect a wallet to continue.");
       return;
@@ -192,7 +192,7 @@ export default function Home() {
     } finally {
       setWalletAuthLoading(false);
     }
-  };
+  }, [address, chainId, signMessageAsync]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -214,7 +214,7 @@ export default function Home() {
     lastAuthAddress,
     session,
     walletAuthLoading,
-    chainId,
+    signInWithWallet,
   ]);
 
   const handleCreateGoal = async (event: FormEvent) => {
@@ -260,12 +260,12 @@ export default function Home() {
     const { data: goalData, error } = await supabase
       .from("goals")
       .insert({
-      user_id: session.user.id,
-      title: goalForm.title.trim(),
-      start_at: startISO,
-      deadline_at: deadlineISO,
-      model_type: goalForm.modelType,
-      target_value: targetValueNumber,
+        user_id: session.user.id,
+        title: goalForm.title.trim(),
+        start_at: startISO,
+        deadline_at: deadlineISO,
+        model_type: goalForm.modelType,
+        target_value: targetValueNumber,
         target_unit: goalForm.targetUnit.trim() || null,
         privacy: "private",
         status: "active",
@@ -314,7 +314,7 @@ export default function Home() {
         <header className={styles.header}>
           <div>
             <div className={styles.brand}>Baseline</div>
-            <div className={styles.tagline}>Invest in each other's success.</div>
+            <div className={styles.tagline}>{BASELINE_TAGLINE}</div>
           </div>
           {session ? (
             <div className={styles.buttonRow}>
