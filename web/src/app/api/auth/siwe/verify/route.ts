@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { SiweMessage } from "siwe";
 import { supabaseAdmin, supabaseServer } from "@/lib/supabaseServer";
 
-const walletEmail = (address: string) => `wallet_${address}@baseline.invalid`;
+const walletEmail = (address: string) => `wallet_${address}@baseline.test`;
 
 const isDuplicateUserError = (message: string) => {
   const normalized = message.toLowerCase();
@@ -14,6 +14,42 @@ const isDuplicateUserError = (message: string) => {
     normalized.includes("user already registered") ||
     normalized.includes("duplicate")
   );
+};
+
+const findUserByWalletAddress = async (
+  address: string,
+  adminClient: NonNullable<typeof supabaseAdmin>
+) => {
+  const perPage = 200;
+  let page = 1;
+
+  while (page <= 10) {
+    const { data, error } = await adminClient.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) {
+      return { error };
+    }
+
+    const user = data.users.find((candidate) => {
+      const walletAddress = candidate.user_metadata?.wallet_address;
+      return typeof walletAddress === "string" && walletAddress.toLowerCase() === address;
+    });
+
+    if (user) {
+      return { user };
+    }
+
+    if (data.users.length < perPage) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return {};
 };
 
 export async function POST(request: Request) {
@@ -67,17 +103,44 @@ export async function POST(request: Request) {
   }
 
   const address = siweMessage.address.toLowerCase();
-  const email = walletEmail(address);
-  const metadata = { wallet_address: address, chain_id: siweMessage.chainId };
+  const { user: existingUser, error: userLookupError } =
+    await findUserByWalletAddress(address, supabaseAdmin);
 
-  const { error: createError } = await supabaseAdmin.auth.admin.createUser({
-    email,
-    email_confirm: true,
-    user_metadata: metadata,
-  });
+  if (userLookupError) {
+    return NextResponse.json({ error: userLookupError.message }, { status: 500 });
+  }
 
-  if (createError && !isDuplicateUserError(createError.message)) {
-    return NextResponse.json({ error: createError.message }, { status: 500 });
+  const metadata = {
+    ...(existingUser?.user_metadata ?? {}),
+    wallet_address: address,
+    chain_id: siweMessage.chainId,
+  };
+
+  const existingEmail = existingUser?.email;
+  const normalizedEmail =
+    !existingEmail || existingEmail.endsWith("@baseline.invalid")
+      ? walletEmail(address)
+      : existingEmail;
+  const email = normalizedEmail;
+  const shouldCreateUser = !existingUser;
+
+  if (shouldCreateUser) {
+    const { error: createError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      email_confirm: true,
+      user_metadata: metadata,
+    });
+
+    if (createError && !isDuplicateUserError(createError.message)) {
+      return NextResponse.json({ error: createError.message }, { status: 500 });
+    }
+  } else if (existingUser?.id) {
+    await supabaseAdmin.auth.admin.updateUserById(existingUser.id, {
+      ...(existingEmail !== normalizedEmail
+        ? { email: normalizedEmail, email_confirm: true }
+        : {}),
+      user_metadata: metadata,
+    });
   }
 
   const { data: linkData, error: linkError } =

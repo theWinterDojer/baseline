@@ -75,10 +75,15 @@
 }
 
 .header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+.brandRow {
+  display: block;
 }
 
 .brand {
@@ -89,6 +94,13 @@
 }
 
 .tagline {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
   font-size: 13px;
   color: #5a5142;
   letter-spacing: 0.02em;
@@ -96,6 +108,8 @@
 }
 
 .backLink {
+  display: inline-block;
+  margin-top: 10px;
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.14em;

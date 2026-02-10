@@ -75,10 +75,15 @@
 }
 
 .header {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+}
+
+.brandRow {
+  display: block;
 }
 
 .brand {
@@ -89,6 +94,13 @@
 }
 
 .tagline {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
   font-size: 13px;
   color: #5a5142;
   letter-spacing: 0.02em;
@@ -96,6 +108,8 @@
 }
 
 .backLink {
+  display: inline-block;
+  margin-top: 10px;
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -178,6 +192,22 @@
   background: var(--retro-cocoa);
   color: #f8f1e4;
   border: none;
+  border-radius: 999px;
+  height: 38px;
+  padding: 0 18px;
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.buttonGhost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--retro-cocoa);
+  border: 1px solid rgba(90, 61, 43, 0.5);
   border-radius: 999px;
   height: 38px;
   padding: 0 18px;

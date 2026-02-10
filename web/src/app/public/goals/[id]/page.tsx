@@ -375,8 +375,10 @@ export default function PublicGoalPage() {
       <div className={styles.container}>
         <header className={styles.header}>
           <div>
-            <div className={styles.brand}>Baseline</div>
-            <div className={styles.tagline}>{BASELINE_TAGLINE}</div>
+            <div className={styles.brandRow}>
+              <div className={styles.brand}>Baseline</div>
+              <div className={styles.tagline}>{BASELINE_TAGLINE}</div>
+            </div>
             <Link href="/" className={styles.backLink}>
               Back to Baseline
             </Link>

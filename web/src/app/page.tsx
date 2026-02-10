@@ -41,7 +41,6 @@ export default function Home() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [goalsLoading, setGoalsLoading] = useState(false);
   const [walletAuthLoading, setWalletAuthLoading] = useState(false);
-  const [walletAuthError, setWalletAuthError] = useState<string | null>(null);
   const [lastAuthAddress, setLastAuthAddress] = useState<string | null>(null);
   const [goalForm, setGoalForm] = useState({
     title: "",
@@ -103,7 +102,6 @@ export default function Home() {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, newSession) => {
         setSession(newSession);
-        setWalletAuthError(null);
         if (newSession) {
           loadGoals(newSession);
         } else {
@@ -121,12 +119,10 @@ export default function Home() {
 
   const signInWithWallet = useCallback(async () => {
     if (!address) {
-      setWalletAuthError("Connect a wallet to continue.");
       return;
     }
 
     setWalletAuthLoading(true);
-    setWalletAuthError(null);
     setLastAuthAddress(address.toLowerCase());
 
     try {
@@ -179,8 +175,9 @@ export default function Home() {
       }
 
     } catch (error) {
-      setWalletAuthError(
-        error instanceof Error ? error.message : "Wallet sign-in failed."
+      console.warn(
+        "Wallet sign-in failed",
+        error instanceof Error ? error.message : error
       );
     } finally {
       setWalletAuthLoading(false);
@@ -190,11 +187,6 @@ export default function Home() {
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     disconnect();
-  };
-
-  const handleWalletRetry = () => {
-    setLastAuthAddress(null);
-    void signInWithWallet();
   };
 
   useEffect(() => {
@@ -306,21 +298,25 @@ export default function Home() {
     <div className={styles.page}>
       <div className={styles.container}>
         <header className={styles.header}>
-          <div>
+          <div className={styles.headerLeft}>
             <div className={styles.brand}>Baseline</div>
+          </div>
+          <div className={styles.headerCenter}>
             <div className={styles.tagline}>{BASELINE_TAGLINE}</div>
           </div>
-          {session ? (
-            <div className={styles.buttonRow}>
-              <span className={styles.pill}>{userLabel}</span>
-              <Link className={`${styles.buttonGhost} ${styles.linkButton}`} href="/settings">
-                Settings
-              </Link>
-              <button className={styles.buttonGhost} onClick={handleSignOut}>
-                Sign out
-              </button>
-            </div>
-          ) : null}
+          <div className={styles.headerRight}>
+            {session ? (
+              <div className={styles.buttonRow}>
+                <span className={styles.pill}>{userLabel}</span>
+                <Link className={`${styles.buttonGhost} ${styles.linkButton}`} href="/settings">
+                  Settings
+                </Link>
+                <button className={styles.buttonGhost} onClick={handleSignOut}>
+                  Sign out
+                </button>
+              </div>
+            ) : null}
+          </div>
         </header>
 
         <div className={styles.main}>
@@ -610,7 +606,7 @@ export default function Home() {
                 <h2 className={styles.panelHeading}>Connect your wallet</h2>
                 <p className={styles.panelSubheading}>
                   Wallet connection is the primary sign-in. Attach email later in settings for
-                  backup access.
+                  backup access and notifications.
                 </p>
                 <div className={styles.walletRow}>
                   <ConnectButton.Custom>
@@ -644,17 +640,7 @@ export default function Home() {
                       {walletAuthLoading ? "Signing in..." : "Sign in with wallet"}
                     </button>
                   ) : null}
-                  {walletAuthError ? (
-                    <button
-                      className={styles.buttonGhost}
-                      type="button"
-                      onClick={handleWalletRetry}
-                    >
-                      Try again
-                    </button>
-                  ) : null}
                 </div>
-                {walletAuthError ? <div className={styles.message}>{walletAuthError}</div> : null}
                 <div className={styles.walletNote}>
                   {isConnected
                     ? "Sign in to unlock goal creation and check-ins."
