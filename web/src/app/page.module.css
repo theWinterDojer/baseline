@@ -294,6 +294,11 @@
   align-items: center;
 }
 
+.discoverCtaRow {
+  margin-top: 10px;
+  padding-top: 8px;
+}
+
 .buttonPrimary {
   background: var(--retro-cocoa);
   color: #f8f1e4;

@@ -132,9 +132,7 @@ export default function PublicGoalPage() {
 
     const { data, error: goalError } = await supabase
       .from("goals")
-        .select(
-          "id,title,description,start_at,completed_at,deadline_at,model_type,target_value,target_unit,privacy,status,check_in_count,created_at"
-        )
+      .select("*")
       .eq("id", id)
       .single();
 

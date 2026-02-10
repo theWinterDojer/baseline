@@ -71,7 +71,7 @@ export default function GoalOffersPage() {
   const loadGoal = async (id: string) => {
     const { data, error: goalError } = await supabase
       .from("goals")
-      .select("id,user_id,title,privacy,status,completed_at")
+      .select("*")
       .eq("id", id)
       .single();
 

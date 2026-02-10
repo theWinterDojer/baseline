@@ -119,13 +119,6 @@ export default function Home() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!isConnected && session) {
-      supabase.auth.signOut();
-    }
-  }, [isConnected, session]);
-
-
   const signInWithWallet = useCallback(async () => {
     if (!address) {
       setWalletAuthError("Connect a wallet to continue.");
@@ -205,11 +198,12 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (!isConnected || !address || session || walletAuthLoading) return;
+    if (initializing || !isConnected || !address || session || walletAuthLoading) return;
     if (lastAuthAddress?.toLowerCase() === address.toLowerCase()) return;
     void signInWithWallet();
   }, [
     address,
+    initializing,
     isConnected,
     lastAuthAddress,
     session,
@@ -673,11 +667,6 @@ export default function Home() {
                 <p className={styles.panelSubheading}>
                   Review your goals and add check-ins as you go.
                 </p>
-                <div className={styles.buttonRow}>
-                  <Link className={`${styles.buttonGhost} ${styles.linkButton}`} href="/discover">
-                    Browse public goals
-                  </Link>
-                </div>
                 {initializing || goalsLoading ? (
                   <div className={styles.emptyState}>Loading your goals...</div>
                 ) : goals.length === 0 ? (
@@ -710,6 +699,11 @@ export default function Home() {
                   </div>
                 )}
                 {goalError ? <div className={styles.message}>{goalError}</div> : null}
+                <div className={`${styles.buttonRow} ${styles.discoverCtaRow}`}>
+                  <Link className={`${styles.buttonGhost} ${styles.linkButton}`} href="/discover">
+                    Browse public goals
+                  </Link>
+                </div>
               </>
             )}
           </section>

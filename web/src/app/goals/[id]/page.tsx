@@ -43,6 +43,9 @@ type CompletionNft = {
   created_at: string;
 };
 
+const isMissingCompletedAtColumnError = (message: string) =>
+  message.includes("completed_at") && message.includes("does not exist");
+
 const formatDateInput = (value: string | null) => {
   if (!value) return "";
   return new Date(value).toISOString().slice(0, 10);
@@ -130,9 +133,7 @@ export default function GoalPage() {
     setError(null);
     const { data, error: goalError } = await supabase
       .from("goals")
-      .select(
-        "id,user_id,title,description,start_at,completed_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
-      )
+      .select("*")
       .eq("id", id)
       .single();
 
@@ -270,9 +271,7 @@ export default function GoalPage() {
       .from("goals")
       .update({ privacy: nextPrivacy })
       .eq("id", goal.id)
-      .select(
-        "id,user_id,title,description,start_at,completed_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
-      )
+      .select("*")
       .single();
 
     if (updateError) {
@@ -312,17 +311,27 @@ export default function GoalPage() {
     setCompletionError(null);
     setCompletionMessage(null);
 
-    const { data, error: updateError } = await supabase
+    const completedAt = new Date().toISOString();
+    let { data, error: updateError } = await supabase
       .from("goals")
       .update({
         status: "completed",
-        completed_at: new Date().toISOString(),
+        completed_at: completedAt,
       })
       .eq("id", goal.id)
-      .select(
-        "id,user_id,title,description,start_at,completed_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
-      )
+      .select("*")
       .single();
+
+    if (updateError && isMissingCompletedAtColumnError(updateError.message)) {
+      const fallback = await supabase
+        .from("goals")
+        .update({ status: "completed" })
+        .eq("id", goal.id)
+        .select("*")
+        .single();
+      data = fallback.data;
+      updateError = fallback.error;
+    }
 
     if (updateError) {
       setCompletionError(updateError.message);
@@ -330,8 +339,12 @@ export default function GoalPage() {
       return;
     }
 
-    setGoal(data);
-    setEditForm(toEditForm(data));
+    const nextGoal = {
+      ...data,
+      completed_at: (data as Goal).completed_at ?? completedAt,
+    } as Goal;
+    setGoal(nextGoal);
+    setEditForm(toEditForm(nextGoal));
     setCompletionMessage("Goal marked complete.");
     setCompletionUpdating(false);
   };
@@ -440,9 +453,7 @@ export default function GoalPage() {
         target_unit: requiresTarget ? editForm.targetUnit.trim() || null : null,
       })
       .eq("id", goal.id)
-      .select(
-        "id,user_id,title,description,start_at,completed_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
-      )
+      .select("*")
       .single();
 
     if (updateError) {
