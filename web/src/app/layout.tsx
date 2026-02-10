@@ -16,6 +16,12 @@ const manrope = Manrope({
 export const metadata: Metadata = {
   title: "Baseline",
   description: "Habit and goal support on Base.",
+  manifest: "/manifest.json",
+  themeColor: "#e5771e",
+  icons: {
+    icon: "/icons/baseline-192.svg",
+    apple: "/icons/baseline-192.svg",
+  },
 };
 
 export default function RootLayout({

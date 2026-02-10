@@ -28,6 +28,64 @@ begin
 end;
 $$;
 
+create or replace function public.enforce_goal_update_policy()
+returns trigger
+language plpgsql
+as $$
+declare
+  has_pledges boolean;
+  changed_privacy boolean;
+  changed_status boolean;
+  changed_check_in_count boolean;
+  other_changes boolean;
+begin
+  select exists (
+    select 1 from public.pledges p where p.goal_id = old.id
+  ) into has_pledges;
+
+  changed_privacy := new.privacy is distinct from old.privacy;
+  changed_status := new.status is distinct from old.status;
+  changed_check_in_count := new.check_in_count is distinct from old.check_in_count;
+
+  other_changes := (
+    new.id is distinct from old.id
+    or new.user_id is distinct from old.user_id
+    or new.title is distinct from old.title
+    or new.description is distinct from old.description
+    or new.start_at is distinct from old.start_at
+    or new.deadline_at is distinct from old.deadline_at
+    or new.model_type is distinct from old.model_type
+    or new.target_value is distinct from old.target_value
+    or new.target_unit is distinct from old.target_unit
+    or new.milestones is distinct from old.milestones
+    or new.tags is distinct from old.tags
+  );
+
+  if has_pledges then
+    if changed_privacy or other_changes then
+      raise exception 'Goal is locked because it has sponsorship pledges.';
+    end if;
+    return new;
+  end if;
+
+  if old.privacy = 'public' and new.privacy = 'public' then
+    if other_changes then
+      raise exception 'Public goals cannot be edited. Make it private first.';
+    end if;
+    return new;
+  end if;
+
+  if old.privacy = 'public' and new.privacy = 'private' then
+    if other_changes then
+      raise exception 'Public goals cannot be edited while making private.';
+    end if;
+    return new;
+  end if;
+
+  return new;
+end;
+$$;
+
 create or replace function public.increment_goal_check_in_count()
 returns trigger
 language plpgsql
@@ -67,6 +125,7 @@ create table if not exists public.goals (
   title text not null,
   description text,
   start_at timestamptz,
+  completed_at timestamptz,
   deadline_at timestamptz not null,
   model_type public.goal_model_type not null default 'count',
   target_value integer,
@@ -83,6 +142,7 @@ create table if not exists public.goals (
 
 alter table public.goals
   add column if not exists start_at timestamptz,
+  add column if not exists completed_at timestamptz,
   add column if not exists check_in_count integer not null default 0;
 
 create table if not exists public.check_ins (
@@ -142,6 +202,27 @@ create table if not exists public.events (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.completion_nfts (
+  id uuid primary key default gen_random_uuid(),
+  goal_id uuid not null references public.goals(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  token_id text,
+  tx_hash text,
+  status text not null default 'minted',
+  created_at timestamptz not null default now(),
+  constraint completion_nfts_goal_unique unique (goal_id)
+);
+
+create table if not exists public.discovery_rankings (
+  goal_id uuid primary key references public.goals(id) on delete cascade,
+  score numeric not null default 0,
+  total_sponsored_cents integer not null default 0,
+  recent_sponsored_cents_7d integer not null default 0,
+  comment_count_7d integer not null default 0,
+  verified_sponsor_count integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists goals_user_id_idx on public.goals(user_id);
 create index if not exists goals_privacy_idx on public.goals(privacy);
 create index if not exists goals_status_idx on public.goals(status);
@@ -163,11 +244,17 @@ create index if not exists comments_goal_id_idx on public.comments(goal_id);
 create index if not exists comments_author_id_idx on public.comments(author_id);
 create index if not exists comments_created_at_idx on public.comments(created_at);
 
+create index if not exists completion_nfts_goal_id_idx on public.completion_nfts(goal_id);
+create index if not exists completion_nfts_user_id_idx on public.completion_nfts(user_id);
+create index if not exists completion_nfts_created_at_idx on public.completion_nfts(created_at);
+
 create index if not exists events_recipient_id_idx on public.events(recipient_id);
 create index if not exists events_actor_id_idx on public.events(actor_id);
 create index if not exists events_goal_id_idx on public.events(goal_id);
 create index if not exists events_pledge_id_idx on public.events(pledge_id);
 create index if not exists events_created_at_idx on public.events(created_at);
+
+create index if not exists discovery_rankings_score_idx on public.discovery_rankings(score);
 
 create trigger set_profiles_updated_at
 before update on public.profiles
@@ -176,6 +263,10 @@ for each row execute function public.set_updated_at();
 create trigger set_goals_updated_at
 before update on public.goals
 for each row execute function public.set_updated_at();
+
+create trigger enforce_goals_update_policy
+before update on public.goals
+for each row execute function public.enforce_goal_update_policy();
 
 create trigger set_pledges_updated_at
 before update on public.pledges

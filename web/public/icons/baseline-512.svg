@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Baseline">
+  <rect width="512" height="512" rx="96" fill="#f6f1e6"/>
+  <circle cx="64" cy="448" r="240" fill="#ffecb4"/>
+  <circle cx="64" cy="448" r="190" fill="#f4a127"/>
+  <circle cx="64" cy="448" r="140" fill="#e5771e"/>
+  <circle cx="64" cy="448" r="92" fill="#5a3d2b"/>
+  <circle cx="64" cy="448" r="44" fill="#75c8ae"/>
+  <circle cx="420" cy="100" r="70" fill="#e5771e" fill-opacity="0.35"/>
+</svg>

@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
 import { logEvent } from "@/lib/eventLogger";
+import { mockCompletionNft } from "@/lib/contracts";
 import styles from "./goal.module.css";
 
 type GoalModelType = "count" | "time" | "milestone";
@@ -16,6 +17,7 @@ type Goal = {
   title: string;
   description: string | null;
   start_at: string | null;
+  completed_at: string | null;
   deadline_at: string;
   model_type: GoalModelType;
   target_value: number | null;
@@ -30,6 +32,14 @@ type CheckIn = {
   check_in_at: string;
   note: string | null;
   proof_hash: string | null;
+  created_at: string;
+};
+
+type CompletionNft = {
+  id: string;
+  token_id: string | null;
+  tx_hash: string | null;
+  status: string;
   created_at: string;
 };
 
@@ -49,6 +59,26 @@ export default function GoalPage() {
   const [privacyUpdating, setPrivacyUpdating] = useState(false);
   const [privacyMessage, setPrivacyMessage] = useState<string | null>(null);
   const [privacyError, setPrivacyError] = useState<string | null>(null);
+  const [pledgeCount, setPledgeCount] = useState(0);
+  const [completionUpdating, setCompletionUpdating] = useState(false);
+  const [completionMessage, setCompletionMessage] = useState<string | null>(null);
+  const [completionError, setCompletionError] = useState<string | null>(null);
+  const [completionNft, setCompletionNft] = useState<CompletionNft | null>(null);
+  const [nftMessage, setNftMessage] = useState<string | null>(null);
+  const [nftError, setNftError] = useState<string | null>(null);
+  const [nftMinting, setNftMinting] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    hasStartDate: false,
+    startDate: "",
+    deadline: "",
+    modelType: "count" as GoalModelType,
+    targetValue: "",
+    targetUnit: "",
+  });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editMessage, setEditMessage] = useState<string | null>(null);
+  const [editUpdating, setEditUpdating] = useState(false);
 
   const walletAddress = session?.user?.user_metadata?.wallet_address as
     | string
@@ -60,6 +90,11 @@ export default function GoalPage() {
   }, [goal, checkIns.length]);
 
   const isOwner = Boolean(session?.user?.id && goal?.user_id === session.user.id);
+
+  const formatDateInput = (value: string | null) => {
+    if (!value) return "";
+    return new Date(value).toISOString().slice(0, 10);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -86,7 +121,7 @@ export default function GoalPage() {
     const { data, error: goalError } = await supabase
       .from("goals")
       .select(
-        "id,user_id,title,description,start_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
+        "id,user_id,title,description,start_at,completed_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
       )
       .eq("id", id)
       .single();
@@ -100,6 +135,17 @@ export default function GoalPage() {
     }
 
     setGoal(data);
+
+    const { count, error: pledgeError } = await supabase
+      .from("pledges")
+      .select("id", { count: "exact", head: true })
+      .eq("goal_id", id);
+
+    if (pledgeError) {
+      setPledgeCount(0);
+    } else {
+      setPledgeCount(count ?? 0);
+    }
 
     setCheckInError(null);
     const { data: checkInData, error: checkInError } = await supabase
@@ -115,6 +161,19 @@ export default function GoalPage() {
       setCheckIns(checkInData ?? []);
     }
 
+    const { data: nftData, error: nftError } = await supabase
+      .from("completion_nfts")
+      .select("id,token_id,tx_hash,status,created_at")
+      .eq("goal_id", id)
+      .maybeSingle();
+
+    if (nftError) {
+      setNftError(nftError.message);
+      setCompletionNft(null);
+    } else {
+      setCompletionNft(nftData ?? null);
+    }
+
     setLoading(false);
   };
 
@@ -122,6 +181,19 @@ export default function GoalPage() {
     if (!goalId) return;
     void loadGoal(goalId);
   }, [goalId]);
+
+  useEffect(() => {
+    if (!goal) return;
+    setEditForm({
+      title: goal.title ?? "",
+      hasStartDate: Boolean(goal.start_at),
+      startDate: formatDateInput(goal.start_at),
+      deadline: formatDateInput(goal.deadline_at),
+      modelType: goal.model_type,
+      targetValue: goal.target_value ? String(goal.target_value) : "",
+      targetUnit: goal.target_unit ?? "",
+    });
+  }, [goal]);
 
   const handleCheckIn = async (event: FormEvent) => {
     event.preventDefault();
@@ -179,11 +251,11 @@ export default function GoalPage() {
     if (!goal || !session?.user?.id) return;
     const nextPrivacy = goal.privacy === "public" ? "private" : "public";
 
-    if (
-      nextPrivacy === "public" &&
-      !window.confirm("Make this goal public so others can view and sponsor it?")
-    ) {
-      return;
+    if (nextPrivacy === "public") {
+      const ok = window.confirm(
+        "Make this goal public so others can view and sponsor it?\n\nWhile public, edits are locked. If there are no pledges yet, you can make it private to edit or delete. Once any pledge exists, only completion updates are allowed."
+      );
+      if (!ok) return;
     }
 
     setPrivacyUpdating(true);
@@ -195,12 +267,22 @@ export default function GoalPage() {
       .update({ privacy: nextPrivacy })
       .eq("id", goal.id)
       .select(
-        "id,user_id,title,description,start_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
+        "id,user_id,title,description,start_at,completed_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
       )
       .single();
 
     if (updateError) {
-      setPrivacyError(updateError.message);
+      if (updateError.message.toLowerCase().includes("pledge")) {
+        setPrivacyError(
+          "This goal has sponsorship pledges and can’t be edited or made private. You can still mark it complete."
+        );
+      } else if (updateError.message.toLowerCase().includes("public goals cannot be edited")) {
+        setPrivacyError(
+          "Public goals can’t be edited. Make it private first if you need to change details."
+        );
+      } else {
+        setPrivacyError(updateError.message);
+      }
       setPrivacyUpdating(false);
       return;
     }
@@ -212,6 +294,160 @@ export default function GoalPage() {
         : "Goal is now private."
     );
     setPrivacyUpdating(false);
+  };
+
+  const handleMarkComplete = async () => {
+    if (!goal || !session?.user?.id) return;
+    if (goal.status === "completed") return;
+
+    const ok = window.confirm("Mark this goal as complete?");
+    if (!ok) return;
+
+    setCompletionUpdating(true);
+    setCompletionError(null);
+    setCompletionMessage(null);
+
+    const { data, error: updateError } = await supabase
+      .from("goals")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", goal.id)
+      .select(
+        "id,user_id,title,description,start_at,completed_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
+      )
+      .single();
+
+    if (updateError) {
+      setCompletionError(updateError.message);
+      setCompletionUpdating(false);
+      return;
+    }
+
+    setGoal(data);
+    setCompletionMessage("Goal marked complete.");
+    setCompletionUpdating(false);
+  };
+
+  const handleMintNft = async () => {
+    if (!goal || !session?.user?.id) return;
+    if (goal.status !== "completed") {
+      setNftError("Complete the goal before minting.");
+      return;
+    }
+
+    if (completionNft) {
+      setNftMessage("Completion NFT already minted.");
+      return;
+    }
+
+    setNftError(null);
+    setNftMessage(null);
+    setNftMinting(true);
+
+    const { tokenId, txHash } = await mockCompletionNft.mint();
+
+    const { data, error: mintError } = await supabase
+      .from("completion_nfts")
+      .insert({
+        goal_id: goal.id,
+        user_id: session.user.id,
+        token_id: tokenId,
+        tx_hash: txHash,
+        status: "minted",
+      })
+      .select("id,token_id,tx_hash,status,created_at")
+      .single();
+
+    if (mintError) {
+      setNftError(mintError.message);
+      setNftMinting(false);
+      return;
+    }
+
+    setCompletionNft(data);
+    setNftMessage("Completion NFT minted.");
+    setNftMinting(false);
+  };
+
+  const handleUpdateGoal = async (event: FormEvent) => {
+    event.preventDefault();
+    setEditError(null);
+    setEditMessage(null);
+
+    if (!goal || !session?.user?.id) return;
+
+    if (goal.privacy !== "private") {
+      setEditError("Make this goal private to edit its details.");
+      return;
+    }
+
+    if (pledgeCount > 0) {
+      setEditError("This goal has pledges and can’t be edited.");
+      return;
+    }
+
+    if (!editForm.title.trim()) {
+      setEditError("Goal title is required.");
+      return;
+    }
+
+    if (!editForm.deadline) {
+      setEditError("Deadline is required.");
+      return;
+    }
+
+    if (editForm.hasStartDate && !editForm.startDate) {
+      setEditError("Start date is required when enabled.");
+      return;
+    }
+
+    const requiresTarget = editForm.modelType !== "milestone";
+    const targetValueNumber = requiresTarget
+      ? Number(editForm.targetValue)
+      : null;
+
+    if (requiresTarget && (!targetValueNumber || targetValueNumber <= 0)) {
+      setEditError("Goal value must be greater than 0.");
+      return;
+    }
+
+    const startISO =
+      editForm.hasStartDate && editForm.startDate
+        ? new Date(`${editForm.startDate}T00:00:00`).toISOString()
+        : null;
+    const deadlineISO = new Date(
+      `${editForm.deadline}T00:00:00`
+    ).toISOString();
+
+    setEditUpdating(true);
+
+    const { data, error: updateError } = await supabase
+      .from("goals")
+      .update({
+        title: editForm.title.trim(),
+        start_at: startISO,
+        deadline_at: deadlineISO,
+        model_type: editForm.modelType,
+        target_value: targetValueNumber,
+        target_unit: requiresTarget ? editForm.targetUnit.trim() || null : null,
+      })
+      .eq("id", goal.id)
+      .select(
+        "id,user_id,title,description,start_at,completed_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
+      )
+      .single();
+
+    if (updateError) {
+      setEditError(updateError.message);
+      setEditUpdating(false);
+      return;
+    }
+
+    setGoal(data);
+    setEditMessage("Goal updated.");
+    setEditUpdating(false);
   };
 
   return (
@@ -250,9 +486,17 @@ export default function GoalPage() {
                 <span className={styles.pill}>{goal.model_type}</span>
                 <span className={styles.pill}>{goal.privacy}</span>
                 <span className={styles.pill}>{goal.status}</span>
+                {pledgeCount > 0 ? (
+                  <span className={`${styles.pill} ${styles.pillLock}`}>Pledge lock</span>
+                ) : null}
                 {goal.start_at ? (
                   <span className={styles.pill}>
                     Starts {new Date(goal.start_at).toLocaleDateString()}
+                  </span>
+                ) : null}
+                {goal.completed_at ? (
+                  <span className={styles.pill}>
+                    Completed {new Date(goal.completed_at).toLocaleDateString()}
                   </span>
                 ) : null}
                 <span className={styles.pill}>
@@ -289,6 +533,12 @@ export default function GoalPage() {
                     </div>
                   </div>
                   <div className={styles.buttonRow}>
+                    <Link
+                      href={`/goals/${goal.id}/offers`}
+                      className={`${styles.buttonGhost} ${styles.linkButton}`}
+                    >
+                      Review offers
+                    </Link>
                     {goal.privacy === "public" ? (
                       <Link
                         href={`/public/goals/${goal.id}`}
@@ -316,6 +566,275 @@ export default function GoalPage() {
                   <div className={`${styles.message} ${styles.success}`}>
                     {privacyMessage}
                   </div>
+                ) : null}
+                <div className={styles.notice}>
+                  While public, goal details are locked. If no pledges exist, you can make the
+                  goal private to edit or delete. Once any pledge exists, only completion updates
+                  are allowed.
+                </div>
+              </section>
+            ) : null}
+
+            {isOwner ? (
+              <section className={styles.card}>
+                <div className={styles.sectionTitle}>Edit goal</div>
+                {goal.privacy !== "private" ? (
+                  <div className={styles.notice}>
+                    Make this goal private to edit its details.
+                  </div>
+                ) : pledgeCount > 0 ? (
+                  <div className={styles.notice}>
+                    This goal has pledges and can’t be edited.
+                  </div>
+                ) : (
+                  <form className={styles.form} onSubmit={handleUpdateGoal}>
+                    <div className={styles.field}>
+                      <label className={styles.label} htmlFor="edit-title">
+                        Goal title
+                      </label>
+                      <input
+                        id="edit-title"
+                        className={styles.input}
+                        value={editForm.title}
+                        onChange={(event) =>
+                          setEditForm((current) => ({
+                            ...current,
+                            title: event.target.value,
+                          }))
+                        }
+                        placeholder="Run 12 miles by April"
+                      />
+                    </div>
+
+                    <div className={styles.row}>
+                      <div className={styles.field}>
+                        <label className={styles.label} htmlFor="edit-deadline">
+                          <span className={styles.labelInline}>
+                            Deadline
+                            <span className={styles.checkboxInline}>
+                              <input
+                                type="checkbox"
+                                className={styles.checkbox}
+                                checked={editForm.hasStartDate}
+                                onChange={(event) =>
+                                  setEditForm((current) => ({
+                                    ...current,
+                                    hasStartDate: event.target.checked,
+                                    startDate: event.target.checked
+                                      ? current.startDate
+                                      : "",
+                                  }))
+                                }
+                              />
+                              Add start date
+                            </span>
+                          </span>
+                        </label>
+                        <input
+                          id="edit-deadline"
+                          type="date"
+                          className={styles.input}
+                          value={editForm.deadline}
+                          onChange={(event) =>
+                            setEditForm((current) => ({
+                              ...current,
+                              deadline: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      {editForm.hasStartDate ? (
+                        <div className={styles.field}>
+                          <label className={styles.label} htmlFor="edit-start">
+                            Start date
+                          </label>
+                          <input
+                            id="edit-start"
+                            type="date"
+                            className={styles.input}
+                            value={editForm.startDate}
+                            onChange={(event) =>
+                              setEditForm((current) => ({
+                                ...current,
+                                startDate: event.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <div className={styles.field}>
+                          <label className={styles.label} htmlFor="edit-model">
+                            Model
+                          </label>
+                          <select
+                            id="edit-model"
+                            className={styles.input}
+                            value={editForm.modelType}
+                            onChange={(event) =>
+                              setEditForm((current) => ({
+                                ...current,
+                                modelType: event.target.value as GoalModelType,
+                              }))
+                            }
+                          >
+                            <option value="count">Count-based</option>
+                            <option value="time">Time-based</option>
+                            <option value="milestone">Milestone-based</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+
+                    {editForm.hasStartDate ? (
+                      <div className={styles.row}>
+                        <div className={styles.field}>
+                          <label className={styles.label} htmlFor="edit-model">
+                            Model
+                          </label>
+                          <select
+                            id="edit-model"
+                            className={styles.input}
+                            value={editForm.modelType}
+                            onChange={(event) =>
+                              setEditForm((current) => ({
+                                ...current,
+                                modelType: event.target.value as GoalModelType,
+                              }))
+                            }
+                          >
+                            <option value="count">Count-based</option>
+                            <option value="time">Time-based</option>
+                            <option value="milestone">Milestone-based</option>
+                          </select>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className={styles.row}>
+                      <div className={styles.field}>
+                        <label className={styles.label} htmlFor="edit-target-value">
+                          Goal value
+                        </label>
+                        <input
+                          id="edit-target-value"
+                          type="number"
+                          className={styles.input}
+                          value={editForm.targetValue}
+                          onChange={(event) =>
+                            setEditForm((current) => ({
+                              ...current,
+                              targetValue: event.target.value,
+                            }))
+                          }
+                          placeholder="12"
+                        />
+                      </div>
+                      <div className={styles.field}>
+                        <label className={styles.label} htmlFor="edit-target-unit">
+                          Goal unit
+                        </label>
+                        <input
+                          id="edit-target-unit"
+                          className={styles.input}
+                          value={editForm.targetUnit}
+                          onChange={(event) =>
+                            setEditForm((current) => ({
+                              ...current,
+                              targetUnit: event.target.value,
+                            }))
+                          }
+                          placeholder="miles"
+                        />
+                      </div>
+                    </div>
+
+                    {editError ? <div className={styles.message}>{editError}</div> : null}
+                    {editMessage ? (
+                      <div className={`${styles.message} ${styles.success}`}>
+                        {editMessage}
+                      </div>
+                    ) : null}
+                    <div className={styles.buttonRow}>
+                      <button className={styles.buttonPrimary} type="submit" disabled={editUpdating}>
+                        {editUpdating ? "Saving..." : "Save changes"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </section>
+            ) : null}
+
+            {isOwner ? (
+              <section className={styles.card}>
+                <div className={styles.sectionTitle}>Completion</div>
+                {goal.status === "completed" ? (
+                  <div className={styles.notice}>
+                    Goal completed{goal.completed_at
+                      ? ` on ${new Date(goal.completed_at).toLocaleDateString()}`
+                      : ""}.
+                  </div>
+                ) : (
+                  <>
+                    <div className={styles.notice}>
+                      Mark the goal complete to start the sponsor approval window.
+                    </div>
+                    <div className={styles.buttonRow}>
+                      <button
+                        className={styles.buttonPrimary}
+                        type="button"
+                        onClick={handleMarkComplete}
+                        disabled={completionUpdating}
+                      >
+                        {completionUpdating ? "Updating..." : "Mark goal complete"}
+                      </button>
+                    </div>
+                  </>
+                )}
+                {completionError ? (
+                  <div className={styles.message}>{completionError}</div>
+                ) : null}
+                {completionMessage ? (
+                  <div className={`${styles.message} ${styles.success}`}>
+                    {completionMessage}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
+            {isOwner ? (
+              <section className={styles.card}>
+                <div className={styles.sectionTitle}>Completion NFT</div>
+                {goal.status !== "completed" ? (
+                  <div className={styles.notice}>
+                    Finish the goal to mint a completion NFT (optional).
+                  </div>
+                ) : completionNft ? (
+                  <div className={styles.notice}>
+                    NFT minted. Token #{completionNft.token_id ?? "—"} · Tx{" "}
+                    {completionNft.tx_hash
+                      ? `${completionNft.tx_hash.slice(0, 10)}…${completionNft.tx_hash.slice(-6)}`
+                      : "—"}
+                  </div>
+                ) : (
+                  <>
+                    <div className={styles.notice}>
+                      Mint a completion NFT to commemorate this goal (mocked for now).
+                    </div>
+                    <div className={styles.buttonRow}>
+                      <button
+                        className={styles.buttonPrimary}
+                        type="button"
+                        onClick={handleMintNft}
+                        disabled={nftMinting}
+                      >
+                        {nftMinting ? "Minting..." : "Mint completion NFT"}
+                      </button>
+                    </div>
+                  </>
+                )}
+                {nftError ? <div className={styles.message}>{nftError}</div> : null}
+                {nftMessage ? (
+                  <div className={`${styles.message} ${styles.success}`}>{nftMessage}</div>
                 ) : null}
               </section>
             ) : null}

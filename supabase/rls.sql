@@ -7,6 +7,8 @@ alter table public.pledges enable row level security;
 alter table public.sponsor_criteria enable row level security;
 alter table public.comments enable row level security;
 alter table public.events enable row level security;
+alter table public.discovery_rankings enable row level security;
+alter table public.completion_nfts enable row level security;
 
 -- Profiles
 create policy "profiles_select_public"
@@ -45,7 +47,14 @@ with check (auth.uid() = user_id);
 create policy "goals_delete_owner"
 on public.goals
 for delete
-using (auth.uid() = user_id);
+using (
+  auth.uid() = user_id
+  and privacy = 'private'
+  and not exists (
+    select 1 from public.pledges p
+    where p.goal_id = id
+  )
+);
 
 -- Check-ins
 create policy "check_ins_select_owner"
@@ -237,3 +246,52 @@ create policy "events_delete_recipient"
 on public.events
 for delete
 using (auth.uid() = recipient_id);
+
+-- Completion NFTs
+create policy "completion_nfts_select_visible"
+on public.completion_nfts
+for select
+using (
+  auth.uid() = user_id
+  or exists (
+    select 1 from public.goals g
+    where g.id = goal_id
+      and g.privacy = 'public'
+  )
+);
+
+create policy "completion_nfts_insert_owner"
+on public.completion_nfts
+for insert
+with check (
+  auth.uid() = user_id
+  and exists (
+    select 1 from public.goals g
+    where g.id = goal_id
+      and g.user_id = auth.uid()
+      and g.status = 'completed'
+  )
+);
+
+create policy "completion_nfts_update_owner"
+on public.completion_nfts
+for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+create policy "completion_nfts_delete_owner"
+on public.completion_nfts
+for delete
+using (auth.uid() = user_id);
+
+-- Discovery rankings
+create policy "discovery_rankings_select_public"
+on public.discovery_rankings
+for select
+using (
+  exists (
+    select 1 from public.goals g
+    where g.id = goal_id
+      and g.privacy = 'public'
+  )
+);

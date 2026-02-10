@@ -113,14 +113,8 @@
 
 .title {
   font-family: var(--font-display), serif;
-  font-size: 32px;
+  font-size: 28px;
   color: #1f1b16;
-}
-
-.description {
-  font-size: 15px;
-  color: #4f4639;
-  line-height: 1.5;
 }
 
 .metaRow {
@@ -140,35 +134,10 @@
   background: rgba(255, 236, 180, 0.6);
 }
 
-.progressWrap {
-  display: grid;
-  gap: 8px;
-}
-
-.progressBar {
-  position: relative;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(114, 100, 76, 0.2);
-  overflow: hidden;
-}
-
-.progressFill {
-  position: absolute;
-  inset: 0;
-  width: 0;
-  background: linear-gradient(90deg, var(--retro-ember), var(--retro-cocoa));
-  border-radius: 999px;
-}
-
-.progressLabel {
-  font-size: 13px;
-  color: #5f5547;
-}
-
-.progressMeta {
+.notice {
   font-size: 12px;
-  color: #7a6d5a;
+  color: #6b5f4a;
+  line-height: 1.5;
 }
 
 .sectionTitle {
@@ -176,109 +145,6 @@
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: #6a5f4f;
-}
-
-.form {
-  display: grid;
-  gap: 14px;
-}
-
-.row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-}
-
-.field {
-  display: grid;
-  gap: 8px;
-}
-
-.label {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: #6a5f4f;
-}
-
-.input {
-  border: 1px solid rgba(90, 61, 43, 0.25);
-  border-radius: 14px;
-  padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.85);
-  font-size: 14px;
-  color: #1b1a17;
-}
-
-.textarea {
-  border: 1px solid rgba(90, 61, 43, 0.25);
-  border-radius: 14px;
-  padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.85);
-  font-size: 14px;
-  color: #1b1a17;
-  min-height: 90px;
-  resize: vertical;
-}
-
-.buttonRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-}
-
-.amountGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-  gap: 10px;
-}
-
-.amountButton {
-  border-radius: 999px;
-  border: 1px solid rgba(90, 61, 43, 0.25);
-  background: rgba(255, 255, 255, 0.85);
-  padding: 8px 12px;
-  font-size: 13px;
-  color: #4f4639;
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.amountButton:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 20px rgba(90, 61, 43, 0.16);
-}
-
-.amountButtonActive {
-  background: rgba(255, 236, 180, 0.8);
-  border-color: rgba(90, 61, 43, 0.35);
-  color: #5a3d2b;
-}
-
-.customAmount {
-  display: grid;
-  gap: 6px;
-}
-
-.customLabel {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #6a5f4f;
-}
-
-.buttonPrimary {
-  background: var(--retro-cocoa);
-  color: #f8f1e4;
-  border: none;
-  border-radius: 999px;
-  height: 38px;
-  padding: 0 18px;
-  font-weight: 500;
-  font-size: 14px;
-  letter-spacing: 0.02em;
-  cursor: pointer;
 }
 
 .message {
@@ -296,17 +162,60 @@
 }
 
 .listItem {
-  padding: 14px;
+  padding: 16px;
   border-radius: 16px;
   background: rgba(255, 250, 240, 0.92);
   border: 1px solid rgba(90, 61, 43, 0.16);
   display: grid;
-  gap: 6px;
+  gap: 8px;
+}
+
+.listHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.listAmount {
+  font-size: 22px;
+  font-weight: 600;
+  color: #1b1a17;
+}
+
+.statusPill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(90, 61, 43, 0.2);
+  background: rgba(255, 236, 180, 0.55);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .listMeta {
   font-size: 12px;
   color: #6b5f4a;
+}
+
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.buttonPrimary {
+  background: var(--retro-cocoa);
+  color: #f8f1e4;
+  border: none;
+  border-radius: 999px;
+  height: 38px;
+  padding: 0 18px;
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
 }
 
 .empty {
@@ -319,7 +228,7 @@
 
 @media (max-width: 700px) {
   .title {
-    font-size: 26px;
+    font-size: 24px;
   }
 
   .card {

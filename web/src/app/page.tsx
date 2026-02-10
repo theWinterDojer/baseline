@@ -354,8 +354,7 @@ export default function Home() {
               <>
                 <h1 className={styles.panelHeading}>Create your first goal</h1>
                 <p className={styles.panelSubheading}>
-                  Keep it lightweight. You can refine the model later and opt into sponsorship
-                  when you are ready.
+                  Keep it lightweight. You can publish for sponsorship when you are ready.
                 </p>
                 <form className={styles.form} onSubmit={handleCreateGoal}>
                   <div className={styles.field}>
@@ -674,6 +673,11 @@ export default function Home() {
                 <p className={styles.panelSubheading}>
                   Review your goals and add check-ins as you go.
                 </p>
+                <div className={styles.buttonRow}>
+                  <Link className={`${styles.buttonGhost} ${styles.linkButton}`} href="/discover">
+                    Browse public goals
+                  </Link>
+                </div>
                 {initializing || goalsLoading ? (
                   <div className={styles.emptyState}>Loading your goals...</div>
                 ) : goals.length === 0 ? (

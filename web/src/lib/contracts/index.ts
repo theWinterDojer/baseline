@@ -7,3 +7,4 @@ export type {
   MockPledge,
   MockPledgeStatus,
 } from "./mockHabitRegistry";
+export { mockCompletionNft } from "./mockCompletionNft";
