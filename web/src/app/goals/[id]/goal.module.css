@@ -231,6 +231,37 @@
   resize: vertical;
 }
 
+.helperText {
+  font-size: 12px;
+  color: #6b5f4a;
+}
+
+.imagePreviewWrap {
+  display: grid;
+  gap: 10px;
+}
+
+.imagePreview,
+.checkInImage {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 12px;
+  border: 1px solid rgba(90, 61, 43, 0.18);
+  object-fit: cover;
+}
+
+.imagePreview {
+  max-height: 280px;
+}
+
+.checkInImageWrap {
+  margin-top: 4px;
+}
+
+.checkInImage {
+  max-height: 320px;
+}
+
 .buttonRow {
   display: flex;
   flex-wrap: wrap;
@@ -300,6 +331,12 @@
 .message {
   font-size: 13px;
   color: #7a3d2d;
+}
+
+.inlineLink {
+  color: #5a3d2b;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .success {

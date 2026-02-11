@@ -10,6 +10,53 @@ alter table public.events enable row level security;
 alter table public.discovery_rankings enable row level security;
 alter table public.completion_nfts enable row level security;
 
+-- Idempotency for re-runs
+drop policy if exists "profiles_select_public" on public.profiles;
+drop policy if exists "profiles_insert_owner" on public.profiles;
+drop policy if exists "profiles_update_owner" on public.profiles;
+
+drop policy if exists "goals_select_public_or_owner" on public.goals;
+drop policy if exists "goals_insert_owner" on public.goals;
+drop policy if exists "goals_update_owner" on public.goals;
+drop policy if exists "goals_delete_owner" on public.goals;
+
+drop policy if exists "check_ins_select_owner" on public.check_ins;
+drop policy if exists "check_ins_insert_owner" on public.check_ins;
+drop policy if exists "check_ins_update_owner" on public.check_ins;
+drop policy if exists "check_ins_delete_owner" on public.check_ins;
+
+drop policy if exists "pledges_select_owner_or_sponsor" on public.pledges;
+drop policy if exists "pledges_insert_sponsor" on public.pledges;
+drop policy if exists "pledges_update_owner_or_sponsor" on public.pledges;
+drop policy if exists "pledges_delete_sponsor" on public.pledges;
+
+drop policy if exists "sponsor_criteria_select_visible" on public.sponsor_criteria;
+drop policy if exists "sponsor_criteria_insert_sponsor" on public.sponsor_criteria;
+drop policy if exists "sponsor_criteria_update_sponsor" on public.sponsor_criteria;
+drop policy if exists "sponsor_criteria_delete_sponsor" on public.sponsor_criteria;
+
+drop policy if exists "comments_select_public_goal" on public.comments;
+drop policy if exists "comments_insert_public_goal" on public.comments;
+drop policy if exists "comments_update_owner" on public.comments;
+drop policy if exists "comments_delete_owner" on public.comments;
+
+drop policy if exists "events_select_recipient" on public.events;
+drop policy if exists "events_insert_actor" on public.events;
+drop policy if exists "events_update_recipient" on public.events;
+drop policy if exists "events_delete_recipient" on public.events;
+
+drop policy if exists "completion_nfts_select_visible" on public.completion_nfts;
+drop policy if exists "completion_nfts_insert_owner" on public.completion_nfts;
+drop policy if exists "completion_nfts_update_owner" on public.completion_nfts;
+drop policy if exists "completion_nfts_delete_owner" on public.completion_nfts;
+
+drop policy if exists "discovery_rankings_select_public" on public.discovery_rankings;
+
+drop policy if exists "checkin_images_select_owner" on storage.objects;
+drop policy if exists "checkin_images_insert_owner" on storage.objects;
+drop policy if exists "checkin_images_update_owner" on storage.objects;
+drop policy if exists "checkin_images_delete_owner" on storage.objects;
+
 -- Profiles
 create policy "profiles_select_public"
 on public.profiles
@@ -294,4 +341,46 @@ using (
     where g.id = goal_id
       and g.privacy = 'public'
   )
+);
+
+-- Storage (check-in images)
+create policy "checkin_images_select_owner"
+on storage.objects
+for select
+using (
+  bucket_id = 'checkin-images'
+  and auth.uid() is not null
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+create policy "checkin_images_insert_owner"
+on storage.objects
+for insert
+with check (
+  bucket_id = 'checkin-images'
+  and auth.uid() is not null
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+create policy "checkin_images_update_owner"
+on storage.objects
+for update
+using (
+  bucket_id = 'checkin-images'
+  and auth.uid() is not null
+  and (storage.foldername(name))[1] = auth.uid()::text
+)
+with check (
+  bucket_id = 'checkin-images'
+  and auth.uid() is not null
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+create policy "checkin_images_delete_owner"
+on storage.objects
+for delete
+using (
+  bucket_id = 'checkin-images'
+  and auth.uid() is not null
+  and (storage.foldername(name))[1] = auth.uid()::text
 );

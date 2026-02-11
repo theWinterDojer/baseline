@@ -22,6 +22,10 @@ type Goal = {
   target_unit: string | null;
   privacy: "private" | "public";
   status: "active" | "completed" | "archived";
+  commitment_id: string | null;
+  commitment_tx_hash: string | null;
+  commitment_chain_id: number | null;
+  commitment_created_at: string | null;
   created_at: string;
 };
 
@@ -77,7 +81,7 @@ export default function Home() {
     const { data, error } = await supabase
       .from("goals")
       .select(
-        "id,title,start_at,deadline_at,model_type,target_value,target_unit,privacy,status,created_at"
+        "id,title,start_at,deadline_at,model_type,target_value,target_unit,privacy,status,commitment_id,commitment_tx_hash,commitment_chain_id,commitment_created_at,created_at"
       )
       .order("created_at", { ascending: false });
 

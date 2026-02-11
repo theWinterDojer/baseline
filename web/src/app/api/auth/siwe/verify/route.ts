@@ -3,7 +3,13 @@ import { cookies } from "next/headers";
 import { SiweMessage } from "siwe";
 import { supabaseAdmin, supabaseServer } from "@/lib/supabaseServer";
 
-const walletEmail = (address: string) => `wallet_${address}@baseline.test`;
+const WALLET_PLACEHOLDER_DOMAIN = "example.com";
+
+const walletEmail = (address: string) =>
+  `wallet_${address}@${WALLET_PLACEHOLDER_DOMAIN}`;
+
+const isLegacyWalletPlaceholderEmail = (email: string) =>
+  email.endsWith("@baseline.invalid") || email.endsWith("@baseline.test");
 
 const isDuplicateUserError = (message: string) => {
   const normalized = message.toLowerCase();
@@ -118,7 +124,7 @@ export async function POST(request: Request) {
 
   const existingEmail = existingUser?.email;
   const normalizedEmail =
-    !existingEmail || existingEmail.endsWith("@baseline.invalid")
+    !existingEmail || isLegacyWalletPlaceholderEmail(existingEmail)
       ? walletEmail(address)
       : existingEmail;
   const email = normalizedEmail;

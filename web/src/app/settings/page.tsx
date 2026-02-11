@@ -9,9 +9,10 @@ import styles from "./settings.module.css";
 
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const toLower = (value: string) => value.trim().toLowerCase();
-const isLegacyWalletEmailError = (message: string) =>
-  message.toLowerCase().includes("@baseline.invalid") &&
-  message.toLowerCase().includes("invalid");
+const isWalletPlaceholderInvalidEmailError = (message: string) => {
+  const normalized = message.toLowerCase();
+  return normalized.includes("wallet_") && normalized.includes("invalid");
+};
 
 export default function SettingsPage() {
   const [session, setSession] = useState<Session | null>(null);
@@ -138,7 +139,7 @@ export default function SettingsPage() {
 
     if (
       updateError &&
-      isLegacyWalletEmailError(updateError.message) &&
+      isWalletPlaceholderInvalidEmailError(updateError.message) &&
       session?.access_token
     ) {
       const normalizeResponse = await fetch("/api/auth/wallet-email/normalize", {

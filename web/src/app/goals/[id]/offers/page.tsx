@@ -15,6 +15,10 @@ type Goal = {
   privacy: "private" | "public";
   status: "active" | "completed" | "archived";
   completed_at: string | null;
+  commitment_id: string | null;
+  commitment_tx_hash: string | null;
+  commitment_chain_id: number | null;
+  commitment_created_at: string | null;
 };
 
 type PledgeStatus = "offered" | "accepted" | "settled" | "expired" | "cancelled";

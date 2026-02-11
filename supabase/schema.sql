@@ -133,6 +133,10 @@ create table if not exists public.goals (
   milestones jsonb,
   privacy public.goal_privacy not null default 'private',
   status public.goal_status not null default 'active',
+  commitment_id text,
+  commitment_tx_hash text,
+  commitment_chain_id integer,
+  commitment_created_at timestamptz,
   check_in_count integer not null default 0,
   tags text[] not null default '{}',
   created_at timestamptz not null default now(),
@@ -143,6 +147,10 @@ create table if not exists public.goals (
 alter table public.goals
   add column if not exists start_at timestamptz,
   add column if not exists completed_at timestamptz,
+  add column if not exists commitment_id text,
+  add column if not exists commitment_tx_hash text,
+  add column if not exists commitment_chain_id integer,
+  add column if not exists commitment_created_at timestamptz,
   add column if not exists check_in_count integer not null default 0;
 
 create table if not exists public.check_ins (
@@ -152,8 +160,34 @@ create table if not exists public.check_ins (
   check_in_at timestamptz not null default now(),
   note text,
   proof_hash text,
+  image_path text,
+  onchain_commitment_id text,
+  onchain_tx_hash text,
+  onchain_chain_id integer,
+  onchain_submitted_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+alter table public.check_ins
+  add column if not exists image_path text,
+  add column if not exists onchain_commitment_id text,
+  add column if not exists onchain_tx_hash text,
+  add column if not exists onchain_chain_id integer,
+  add column if not exists onchain_submitted_at timestamptz;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'checkin-images',
+  'checkin-images',
+  false,
+  10485760,
+  array['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']
+)
+on conflict (id) do update
+set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
 
 create table if not exists public.pledges (
   id uuid primary key default gen_random_uuid(),
@@ -228,10 +262,12 @@ create index if not exists goals_privacy_idx on public.goals(privacy);
 create index if not exists goals_status_idx on public.goals(status);
 create index if not exists goals_deadline_at_idx on public.goals(deadline_at);
 create index if not exists goals_created_at_idx on public.goals(created_at);
+create index if not exists goals_commitment_id_idx on public.goals(commitment_id);
 
 create index if not exists check_ins_goal_id_idx on public.check_ins(goal_id);
 create index if not exists check_ins_user_id_idx on public.check_ins(user_id);
 create index if not exists check_ins_check_in_at_idx on public.check_ins(check_in_at);
+create index if not exists check_ins_onchain_commitment_id_idx on public.check_ins(onchain_commitment_id);
 
 create index if not exists pledges_goal_id_idx on public.pledges(goal_id);
 create index if not exists pledges_sponsor_id_idx on public.pledges(sponsor_id);
@@ -256,26 +292,32 @@ create index if not exists events_created_at_idx on public.events(created_at);
 
 create index if not exists discovery_rankings_score_idx on public.discovery_rankings(score);
 
+drop trigger if exists set_profiles_updated_at on public.profiles;
 create trigger set_profiles_updated_at
 before update on public.profiles
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_goals_updated_at on public.goals;
 create trigger set_goals_updated_at
 before update on public.goals
 for each row execute function public.set_updated_at();
 
+drop trigger if exists enforce_goals_update_policy on public.goals;
 create trigger enforce_goals_update_policy
 before update on public.goals
 for each row execute function public.enforce_goal_update_policy();
 
+drop trigger if exists set_pledges_updated_at on public.pledges;
 create trigger set_pledges_updated_at
 before update on public.pledges
 for each row execute function public.set_updated_at();
 
+drop trigger if exists check_ins_increment_goal_count on public.check_ins;
 create trigger check_ins_increment_goal_count
 after insert on public.check_ins
 for each row execute function public.increment_goal_check_in_count();
 
+drop trigger if exists check_ins_decrement_goal_count on public.check_ins;
 create trigger check_ins_decrement_goal_count
 after delete on public.check_ins
 for each row execute function public.decrement_goal_check_in_count();

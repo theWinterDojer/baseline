@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, supabaseServer } from "@/lib/supabaseServer";
 
-const walletEmail = (address: string) => `wallet_${address}@baseline.test`;
+const WALLET_PLACEHOLDER_DOMAIN = "example.com";
+
+const walletEmail = (address: string) =>
+  `wallet_${address}@${WALLET_PLACEHOLDER_DOMAIN}`;
+
+const isLegacyWalletEmail = (email: string) =>
+  email.endsWith("@baseline.invalid") || email.endsWith("@baseline.test");
 
 export async function POST(request: Request) {
   if (!supabaseAdmin) {
@@ -41,7 +47,7 @@ export async function POST(request: Request) {
   const walletAddress = walletAddressRaw.toLowerCase();
   const currentEmail = user.email ?? "";
 
-  if (!currentEmail.endsWith("@baseline.invalid")) {
+  if (!isLegacyWalletEmail(currentEmail)) {
     return NextResponse.json({ normalized: false });
   }
 

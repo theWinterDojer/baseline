@@ -21,6 +21,10 @@ type Goal = {
   target_unit: string | null;
   privacy: "private" | "public";
   status: "active" | "completed" | "archived";
+  commitment_id: string | null;
+  commitment_tx_hash: string | null;
+  commitment_chain_id: number | null;
+  commitment_created_at: string | null;
   check_in_count: number;
   created_at: string;
 };
@@ -418,6 +422,14 @@ export default function PublicGoalPage() {
                 <span className={styles.pill}>
                   Due {new Date(goal.deadline_at).toLocaleDateString()}
                 </span>
+                {goal.commitment_id ? (
+                  <span className={styles.pill}>
+                    Anchored #{`${goal.commitment_id.slice(0, 10)}${goal.commitment_id.length > 10 ? "..." : ""}`}
+                  </span>
+                ) : null}
+                {goal.commitment_chain_id ? (
+                  <span className={styles.pill}>Chain {goal.commitment_chain_id}</span>
+                ) : null}
               </div>
               <div className={styles.progressWrap}>
                 <div className={styles.progressBar}>
