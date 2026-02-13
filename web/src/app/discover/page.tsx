@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { BASELINE_TAGLINE } from "@/lib/brand";
 import type { GoalModelType } from "@/lib/goalTypes";
+import { getPresetLabel } from "@/lib/goalPresets";
+import {
+  isMissingGoalTrackingColumnsError,
+  isWeightSnapshotPreset,
+} from "@/lib/goalTracking";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./discover.module.css";
 
@@ -14,6 +19,10 @@ type GoalSummary = {
   deadline_at: string;
   created_at: string;
   model_type: GoalModelType;
+  goal_type: "count" | "duration" | null;
+  count_unit_preset: string | null;
+  total_target_value: number | null;
+  total_progress_value: number;
   target_value: number | null;
   target_unit: string | null;
   check_in_count: number;
@@ -47,6 +56,33 @@ const normalizeDiscoveryRows = (data: RawDiscoveryRow[]): DiscoveryRow[] =>
     goals: toGoalSummary(row.goals),
   }));
 
+const selectGoalsWithTracking =
+  "id,title,description,deadline_at,created_at,model_type,goal_type,count_unit_preset,total_target_value,total_progress_value,target_value,target_unit,check_in_count";
+const selectGoalsLegacy =
+  "id,title,description,deadline_at,created_at,model_type,target_value,target_unit,check_in_count";
+
+const progressRatio = (
+  goal: GoalSummary,
+  snapshotByGoalId: Map<string, number>
+): number => {
+  const target = goal.total_target_value ?? goal.target_value ?? 0;
+  if (!target || target <= 0) return 0;
+
+  if (isWeightSnapshotPreset(goal.count_unit_preset)) {
+    const latestSnapshot = snapshotByGoalId.get(goal.id);
+    if (latestSnapshot !== undefined) {
+      return latestSnapshot / target;
+    }
+  }
+
+  const current =
+    typeof goal.total_progress_value === "number"
+      ? goal.total_progress_value
+      : goal.check_in_count;
+  if (current <= 0) return 0;
+  return current / target;
+};
+
 const views = [
   { id: "trending", label: "Trending" },
   { id: "top", label: "Top Sponsored" },
@@ -59,47 +95,124 @@ type ViewId = (typeof views)[number]["id"];
 export default function DiscoverPage() {
   const [activeView, setActiveView] = useState<ViewId>("trending");
   const [rows, setRows] = useState<DiscoveryRow[]>([]);
+  const [snapshotByGoalId, setSnapshotByGoalId] = useState<Map<string, number>>(
+    () => new Map()
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadTrending = useCallback(async (): Promise<DiscoveryRow[]> => {
+  const loadSnapshotProgress = useCallback(async (goalIds: string[]) => {
+    if (goalIds.length === 0) return new Map<string, number>();
     const { data, error } = await supabase
+      .from("check_ins")
+      .select("goal_id,progress_snapshot_value,check_in_at")
+      .in("goal_id", goalIds)
+      .not("progress_snapshot_value", "is", null)
+      .order("check_in_at", { ascending: false });
+
+    if (error) {
+      return new Map<string, number>();
+    }
+
+    const nextMap = new Map<string, number>();
+    for (const row of data ?? []) {
+      if (
+        !nextMap.has(row.goal_id) &&
+        typeof row.progress_snapshot_value === "number"
+      ) {
+        nextMap.set(row.goal_id, row.progress_snapshot_value);
+      }
+    }
+    return nextMap;
+  }, []);
+
+  const loadTrending = useCallback(async (): Promise<DiscoveryRow[]> => {
+    const withTracking = await supabase
       .from("discovery_rankings")
       .select(
-        "goal_id,score,total_sponsored_cents,recent_sponsored_cents_7d,comment_count_7d,verified_sponsor_count,updated_at,goals(id,title,description,deadline_at,created_at,model_type,target_value,target_unit,check_in_count)"
+        `goal_id,score,total_sponsored_cents,recent_sponsored_cents_7d,comment_count_7d,verified_sponsor_count,updated_at,goals(${selectGoalsWithTracking})`
       )
       .order("score", { ascending: false })
       .limit(50);
 
-    if (error) throw error;
-    return normalizeDiscoveryRows((data ?? []) as RawDiscoveryRow[]);
+    if (withTracking.error) {
+      if (!isMissingGoalTrackingColumnsError(withTracking.error.message)) {
+        throw withTracking.error;
+      }
+
+      const legacy = await supabase
+        .from("discovery_rankings")
+        .select(
+          `goal_id,score,total_sponsored_cents,recent_sponsored_cents_7d,comment_count_7d,verified_sponsor_count,updated_at,goals(${selectGoalsLegacy})`
+        )
+        .order("score", { ascending: false })
+        .limit(50);
+
+      if (legacy.error) throw legacy.error;
+      return normalizeDiscoveryRows((legacy.data ?? []) as RawDiscoveryRow[]);
+    }
+
+    return normalizeDiscoveryRows((withTracking.data ?? []) as RawDiscoveryRow[]);
   }, []);
 
   const loadTopSponsored = useCallback(async (): Promise<DiscoveryRow[]> => {
-    const { data, error } = await supabase
+    const withTracking = await supabase
       .from("discovery_rankings")
       .select(
-        "goal_id,score,total_sponsored_cents,recent_sponsored_cents_7d,comment_count_7d,verified_sponsor_count,updated_at,goals(id,title,description,deadline_at,created_at,model_type,target_value,target_unit,check_in_count)"
+        `goal_id,score,total_sponsored_cents,recent_sponsored_cents_7d,comment_count_7d,verified_sponsor_count,updated_at,goals(${selectGoalsWithTracking})`
       )
       .order("total_sponsored_cents", { ascending: false })
       .limit(50);
 
-    if (error) throw error;
-    return normalizeDiscoveryRows((data ?? []) as RawDiscoveryRow[]);
+    if (withTracking.error) {
+      if (!isMissingGoalTrackingColumnsError(withTracking.error.message)) {
+        throw withTracking.error;
+      }
+
+      const legacy = await supabase
+        .from("discovery_rankings")
+        .select(
+          `goal_id,score,total_sponsored_cents,recent_sponsored_cents_7d,comment_count_7d,verified_sponsor_count,updated_at,goals(${selectGoalsLegacy})`
+        )
+        .order("total_sponsored_cents", { ascending: false })
+        .limit(50);
+
+      if (legacy.error) throw legacy.error;
+      return normalizeDiscoveryRows((legacy.data ?? []) as RawDiscoveryRow[]);
+    }
+
+    return normalizeDiscoveryRows((withTracking.data ?? []) as RawDiscoveryRow[]);
   }, []);
 
   const loadNewest = useCallback(async (): Promise<DiscoveryRow[]> => {
-    const { data, error } = await supabase
+    const withTracking = await supabase
       .from("goals")
-      .select(
-        "id,title,description,deadline_at,created_at,model_type,target_value,target_unit,check_in_count"
-      )
+      .select(selectGoalsWithTracking)
       .eq("privacy", "public")
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (error) throw error;
-    return (data ?? []).map((goal) => ({
+    let goalsData: GoalSummary[] = [];
+
+    if (withTracking.error) {
+      if (!isMissingGoalTrackingColumnsError(withTracking.error.message)) {
+        throw withTracking.error;
+      }
+
+      const legacy = await supabase
+        .from("goals")
+        .select(selectGoalsLegacy)
+        .eq("privacy", "public")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (legacy.error) throw legacy.error;
+      goalsData = (legacy.data ?? []) as GoalSummary[];
+    } else {
+      goalsData = (withTracking.data ?? []) as GoalSummary[];
+    }
+
+    return goalsData.map((goal) => ({
       goal_id: goal.id,
       score: 0,
       total_sponsored_cents: 0,
@@ -112,40 +225,49 @@ export default function DiscoverPage() {
   }, []);
 
   const loadNearCompletion = useCallback(async (): Promise<DiscoveryRow[]> => {
-    const { data, error } = await supabase
+    const withTracking = await supabase
       .from("goals")
-      .select(
-        "id,title,description,deadline_at,created_at,model_type,target_value,target_unit,check_in_count"
-      )
+      .select(selectGoalsWithTracking)
       .eq("privacy", "public")
-      .gt("target_value", 0)
-      .order("check_in_count", { ascending: false })
-      .limit(50);
+      .order("created_at", { ascending: false })
+      .limit(200);
 
-    if (error) throw error;
+    let goalsData: GoalSummary[] = [];
 
-    const items: DiscoveryRow[] = (data ?? []).map((goal) => ({
-      goal_id: goal.id,
-      score: 0,
-      total_sponsored_cents: 0,
-      recent_sponsored_cents_7d: 0,
-      comment_count_7d: 0,
-      verified_sponsor_count: 0,
-      updated_at: new Date().toISOString(),
-      goals: goal as GoalSummary,
-    }));
+    if (withTracking.error) {
+      if (!isMissingGoalTrackingColumnsError(withTracking.error.message)) {
+        throw withTracking.error;
+      }
 
-    return items
-      .sort((a, b) => {
-        const pctA = a.goals?.target_value
-          ? a.goals.check_in_count / a.goals.target_value
-          : 0;
-        const pctB = b.goals?.target_value
-          ? b.goals.check_in_count / b.goals.target_value
-          : 0;
-        return pctB - pctA;
-      })
-      .slice(0, 50);
+      const legacy = await supabase
+        .from("goals")
+        .select(selectGoalsLegacy)
+        .eq("privacy", "public")
+        .order("created_at", { ascending: false })
+        .limit(200);
+
+      if (legacy.error) throw legacy.error;
+      goalsData = (legacy.data ?? []) as GoalSummary[];
+    } else {
+      goalsData = (withTracking.data ?? []) as GoalSummary[];
+    }
+
+    return goalsData
+      .map((goal) => ({
+        goal_id: goal.id,
+        score: 0,
+        total_sponsored_cents: 0,
+        recent_sponsored_cents_7d: 0,
+        comment_count_7d: 0,
+        verified_sponsor_count: 0,
+        updated_at: new Date().toISOString(),
+        goals: goal as GoalSummary,
+      }))
+      .filter((item) => {
+        const target =
+          item.goals?.total_target_value ?? item.goals?.target_value ?? null;
+        return Boolean(target && target > 0);
+      });
   }, []);
 
   useEffect(() => {
@@ -154,15 +276,36 @@ export default function DiscoverPage() {
 
     const load = async () => {
       try {
+        let nextRows: DiscoveryRow[] = [];
         if (activeView === "trending") {
-          setRows(await loadTrending());
+          nextRows = await loadTrending();
         } else if (activeView === "top") {
-          setRows(await loadTopSponsored());
+          nextRows = await loadTopSponsored();
         } else if (activeView === "near") {
-          setRows(await loadNearCompletion());
+          nextRows = await loadNearCompletion();
         } else {
-          setRows(await loadNewest());
+          nextRows = await loadNewest();
         }
+
+        const snapshotGoalIds = nextRows
+          .map((row) => row.goals)
+          .filter((goal): goal is GoalSummary => Boolean(goal))
+          .filter((goal) => isWeightSnapshotPreset(goal.count_unit_preset))
+          .map((goal) => goal.id);
+        const nextSnapshotMap = await loadSnapshotProgress(snapshotGoalIds);
+
+        if (activeView === "near") {
+          nextRows = nextRows
+            .sort((a, b) => {
+              const pctA = a.goals ? progressRatio(a.goals, nextSnapshotMap) : 0;
+              const pctB = b.goals ? progressRatio(b.goals, nextSnapshotMap) : 0;
+              return pctB - pctA;
+            })
+            .slice(0, 50);
+        }
+
+        setRows(nextRows);
+        setSnapshotByGoalId(nextSnapshotMap);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load discovery.");
       } finally {
@@ -171,7 +314,14 @@ export default function DiscoverPage() {
     };
 
     void load();
-  }, [activeView, loadNearCompletion, loadNewest, loadTopSponsored, loadTrending]);
+  }, [
+    activeView,
+    loadNearCompletion,
+    loadNewest,
+    loadSnapshotProgress,
+    loadTopSponsored,
+    loadTrending,
+  ]);
 
   const viewHint = useMemo(() => {
     switch (activeView) {
@@ -235,13 +385,19 @@ export default function DiscoverPage() {
               {rows.map((row) => {
                 const goal = row.goals;
                 if (!goal) return null;
+                const target = goal.total_target_value ?? goal.target_value ?? null;
+                const ratio = progressRatio(goal, snapshotByGoalId);
                 const progress =
-                  goal.target_value && goal.target_value > 0
-                    ? Math.min(
-                        Math.round((goal.check_in_count / goal.target_value) * 100),
-                        100
-                      )
+                  target && target > 0
+                    ? Math.min(Math.round(ratio * 100), 100)
                     : null;
+                const goalUnit =
+                  (goal.count_unit_preset
+                    ? getPresetLabel(goal.count_unit_preset)
+                    : goal.target_unit) ??
+                  (goal.goal_type === "duration" || goal.model_type === "time"
+                    ? "minutes"
+                    : "units");
 
                 return (
                   <Link
@@ -258,6 +414,11 @@ export default function DiscoverPage() {
                       <span className={styles.pill}>
                         Due {new Date(goal.deadline_at).toLocaleDateString()}
                       </span>
+                      {target ? (
+                        <span className={styles.pill}>
+                          Target {target} {goalUnit}
+                        </span>
+                      ) : null}
                       {progress !== null ? (
                         <span className={styles.pill}>{progress}% complete</span>
                       ) : null}

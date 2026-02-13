@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { BASELINE_TAGLINE } from "@/lib/brand";
+import { getPresetLabel } from "@/lib/goalPresets";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./offers.module.css";
 
@@ -14,6 +15,12 @@ type Goal = {
   title: string;
   privacy: "private" | "public";
   status: "active" | "completed" | "archived";
+  model_type: "count" | "time" | "milestone";
+  goal_type: "count" | "duration" | null;
+  count_unit_preset: string | null;
+  total_target_value: number | null;
+  target_value: number | null;
+  target_unit: string | null;
   completed_at: string | null;
   commitment_id: string | null;
   commitment_tx_hash: string | null;
@@ -52,6 +59,18 @@ export default function GoalOffersPage() {
     () => pledges.filter((pledge) => pledge.status === "offered"),
     [pledges]
   );
+  const minProgressUnitLabel = useMemo(() => {
+    if (!goal) return "units";
+    const fromPreset = goal.count_unit_preset
+      ? getPresetLabel(goal.count_unit_preset)
+      : null;
+    const fallback =
+      goal.target_unit ??
+      (goal.goal_type === "duration" || goal.model_type === "time"
+        ? "minutes"
+        : "units");
+    return (fromPreset ?? fallback).toLowerCase();
+  }, [goal]);
 
   useEffect(() => {
     let mounted = true;
@@ -298,7 +317,7 @@ export default function GoalOffersPage() {
                       </div>
                       {pledge.min_check_ins !== null ? (
                         <div className={styles.listMeta}>
-                          Minimum check-ins: {pledge.min_check_ins}
+                          Minimum progress: {pledge.min_check_ins} {minProgressUnitLabel}
                         </div>
                       ) : null}
                       <div className={styles.buttonRow}>

@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
@@ -10,6 +17,15 @@ import { supabase } from "@/lib/supabaseClient";
 import { logEvent } from "@/lib/eventLogger";
 import { BASELINE_TAGLINE } from "@/lib/brand";
 import type { GoalModelType } from "@/lib/goalTypes";
+import {
+  GOAL_PRESET_CATEGORIES,
+  getPresetLabel,
+} from "@/lib/goalPresets";
+import {
+  type GoalCadence,
+  isMissingGoalTrackingColumnsError,
+  toLegacyCompatibleGoalTrackingFields,
+} from "@/lib/goalTracking";
 import styles from "./page.module.css";
 
 type Goal = {
@@ -31,8 +47,90 @@ type Goal = {
 
 const modelLabels: Record<GoalModelType, string> = {
   count: "Count-based",
-  time: "Time-based",
+  time: "Duration-based",
   milestone: "Milestone-based",
+};
+
+const CADENCE_OPTIONS: Array<{
+  value: GoalCadence;
+  title: string;
+  description: string;
+}> = [
+  {
+    value: "daily",
+    title: "Daily",
+    description: "Set a target you want to hit each day.",
+  },
+  {
+    value: "weekly",
+    title: "Weekly",
+    description: "Set a target you want to hit each week.",
+  },
+  {
+    value: "by_deadline",
+    title: "By deadline",
+    description: "Set one total target to reach by the deadline.",
+  },
+];
+
+const WIZARD_STEPS = [
+  "Intent",
+  "Measurement",
+  "Pace",
+  "Timeline",
+  "Review",
+] as const;
+
+type MeasurementLevel = "type" | "category" | "unit";
+type WizardMotionDirection = "forward" | "backward";
+type DurationInputUnit = "minutes" | "hours";
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const toDateInputValue = (value: Date) => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const defaultStartDate = toDateInputValue(new Date());
+
+const parseStrictPositiveInteger = (value: string): number | null => {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const numberValue = Number(trimmed);
+  if (!Number.isSafeInteger(numberValue) || numberValue <= 0) {
+    return null;
+  }
+  return numberValue;
+};
+
+const daysInclusive = (startDate: string, deadlineDate: string): number | null => {
+  if (!startDate || !deadlineDate) return null;
+  const [startY, startM, startD] = startDate.split("-").map(Number);
+  const [endY, endM, endD] = deadlineDate.split("-").map(Number);
+  if (!startY || !startM || !startD || !endY || !endM || !endD) return null;
+
+  const startUtc = Date.UTC(startY, startM - 1, startD);
+  const endUtc = Date.UTC(endY, endM - 1, endD);
+  if (Number.isNaN(startUtc) || Number.isNaN(endUtc) || startUtc > endUtc) {
+    return null;
+  }
+
+  return Math.floor((endUtc - startUtc) / MS_PER_DAY) + 1;
+};
+
+const staggerStyle = (index: number) => ({
+  animationDelay: `${index * 40}ms`,
+});
+
+const UNIT_GUIDANCE_BY_PRESET_KEY: Record<string, string> = {
+  bodyweight_logged: "Log each weigh-in. Your latest value is used for progress.",
+  reduction_days: "Use this for \"no X\" goals. Log 1 for each successful day.",
+  distance: "Log distance completed on each check-in.",
+  activity_minutes: "Log active minutes completed each time.",
+  sleep_hours: "Log total sleep hours for the day.",
 };
 
 export default function Home() {
@@ -46,17 +144,25 @@ export default function Home() {
   const [goalsLoading, setGoalsLoading] = useState(false);
   const [walletAuthLoading, setWalletAuthLoading] = useState(false);
   const [lastAuthAddress, setLastAuthAddress] = useState<string | null>(null);
+  const [goalWizardStep, setGoalWizardStep] = useState(0);
+  const [measurementLevel, setMeasurementLevel] = useState<MeasurementLevel>("type");
+  const [wizardMotionDirection, setWizardMotionDirection] =
+    useState<WizardMotionDirection>("forward");
+  const [durationInputUnit, setDurationInputUnit] =
+    useState<DurationInputUnit>("minutes");
   const [goalForm, setGoalForm] = useState({
     title: "",
-    hasStartDate: false,
-    startDate: "",
+    modelType: "count" as Extract<GoalModelType, "count" | "time">,
+    categoryKey: "",
+    presetKey: "",
+    cadence: "by_deadline" as GoalCadence,
+    cadenceTargetValue: "",
+    startDate: defaultStartDate,
     deadline: "",
-    modelType: "count" as GoalModelType,
-    targetValue: "",
-    targetUnit: "",
   });
   const [goalError, setGoalError] = useState<string | null>(null);
   const [goalMessage, setGoalMessage] = useState<string | null>(null);
+  const wizardHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
   const walletAddress =
     (session?.user?.user_metadata?.wallet_address as string | undefined) ??
@@ -75,22 +181,242 @@ export default function Home() {
     return "Signed in";
   }, [walletAddress, session?.user?.email]);
 
+  const selectedCategory = useMemo(
+    () =>
+      GOAL_PRESET_CATEGORIES.find(
+        (category) => category.key === goalForm.categoryKey
+      ) ?? null,
+    [goalForm.categoryKey]
+  );
+
+  const selectedPreset = useMemo(
+    () =>
+      selectedCategory?.presets.find(
+        (preset) => preset.key === goalForm.presetKey
+      ) ?? null,
+    [goalForm.presetKey, selectedCategory]
+  );
+
+  useEffect(() => {
+    if (goalForm.modelType !== "count") return;
+    if (!selectedCategory) {
+      if (!goalForm.presetKey) return;
+      setGoalForm((current) => ({
+        ...current,
+        presetKey: "",
+      }));
+      return;
+    }
+    if (selectedCategory.presets.some((preset) => preset.key === goalForm.presetKey)) {
+      return;
+    }
+    setGoalForm((current) => ({
+      ...current,
+      presetKey: selectedCategory.presets[0]?.key ?? "",
+    }));
+  }, [goalForm.modelType, goalForm.presetKey, selectedCategory]);
+
+  const cadenceTargetNumber = useMemo(
+    () => parseStrictPositiveInteger(goalForm.cadenceTargetValue),
+    [goalForm.cadenceTargetValue]
+  );
+  const cadenceTargetStorageValue = useMemo(() => {
+    if (!cadenceTargetNumber) return null;
+    if (goalForm.modelType === "time" && durationInputUnit === "hours") {
+      const minutesValue = cadenceTargetNumber * 60;
+      return Number.isSafeInteger(minutesValue) ? minutesValue : null;
+    }
+    return cadenceTargetNumber;
+  }, [cadenceTargetNumber, durationInputUnit, goalForm.modelType]);
+
+  const dateRangeDays = useMemo(
+    () => daysInclusive(goalForm.startDate, goalForm.deadline),
+    [goalForm.deadline, goalForm.startDate]
+  );
+
+  const cadenceOccurrences = useMemo(() => {
+    if (!dateRangeDays) return null;
+    if (goalForm.cadence === "daily") return dateRangeDays;
+    if (goalForm.cadence === "weekly") return Math.ceil(dateRangeDays / 7);
+    return 1;
+  }, [dateRangeDays, goalForm.cadence]);
+
+  const totalTargetValue = useMemo(() => {
+    if (!cadenceTargetStorageValue || !cadenceOccurrences) return null;
+    return cadenceTargetStorageValue * cadenceOccurrences;
+  }, [cadenceOccurrences, cadenceTargetStorageValue]);
+
+  const durationUnitLabel = durationInputUnit === "hours" ? "hours" : "minutes";
+
+  const goalUnitLabel =
+    goalForm.modelType === "time"
+      ? durationUnitLabel
+      : (selectedPreset?.label.toLowerCase() ?? "units");
+
+  const goalSummary = useMemo(() => {
+    const title = goalForm.title.trim();
+    if (!title || !cadenceTargetNumber || !totalTargetValue) return null;
+    if (goalForm.modelType === "time") {
+      if (goalForm.cadence === "daily") {
+        return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} per day from ${goalForm.startDate} to ${goalForm.deadline} (${totalTargetValue} minutes total).`;
+      }
+      if (goalForm.cadence === "weekly") {
+        return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} per week from ${goalForm.startDate} to ${goalForm.deadline} (${totalTargetValue} minutes total).`;
+      }
+      return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} by ${goalForm.deadline} (${totalTargetValue} minutes total).`;
+    }
+    if (goalForm.cadence === "daily") {
+      return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} per day from ${goalForm.startDate} to ${goalForm.deadline} (${totalTargetValue} total).`;
+    }
+    if (goalForm.cadence === "weekly") {
+      return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} per week from ${goalForm.startDate} to ${goalForm.deadline} (${totalTargetValue} total).`;
+    }
+    return `${title}: ${totalTargetValue} ${goalUnitLabel} by ${goalForm.deadline}.`;
+  }, [
+    cadenceTargetNumber,
+    goalForm.cadence,
+    goalForm.deadline,
+    goalForm.modelType,
+    goalForm.startDate,
+    goalForm.title,
+    goalUnitLabel,
+    totalTargetValue,
+  ]);
+
+  const selectedUnitGuidance = useMemo(() => {
+    if (goalForm.modelType !== "count") return null;
+    return (
+      UNIT_GUIDANCE_BY_PRESET_KEY[goalForm.presetKey] ??
+      "You will log this amount each time you check in."
+    );
+  }, [goalForm.modelType, goalForm.presetKey]);
+
+  const stepErrors = useMemo(() => {
+    const errors = [null, null, null, null, null] as Array<string | null>;
+
+    if (!goalForm.title.trim()) {
+      errors[0] = "Goal title is required.";
+    }
+
+    if (
+      goalForm.modelType === "count" &&
+      (!goalForm.categoryKey || !goalForm.presetKey)
+    ) {
+      errors[1] = "Choose a category and preset unit.";
+    }
+
+    if (!cadenceTargetStorageValue) {
+      errors[2] = "Target must be a whole number greater than 0.";
+    } else if (
+      goalForm.modelType === "time" &&
+      goalForm.cadence !== "by_deadline" &&
+      cadenceTargetStorageValue < 5
+    ) {
+      errors[2] = "Duration goals need at least 5 minutes for daily/weekly cadence.";
+    }
+
+    if (!goalForm.startDate || !goalForm.deadline) {
+      errors[3] = "Start date and deadline are required.";
+    } else if (!dateRangeDays) {
+      errors[3] = "Start date must be on or before the deadline.";
+    }
+
+    if (!goalSummary) {
+      errors[4] = "Complete the earlier steps to review this goal.";
+    }
+
+    return errors;
+  }, [
+    cadenceTargetStorageValue,
+    dateRangeDays,
+    goalForm.cadence,
+    goalForm.categoryKey,
+    goalForm.deadline,
+    goalForm.modelType,
+    goalForm.presetKey,
+    goalForm.startDate,
+    goalForm.title,
+    goalSummary,
+  ]);
+
+  const measurementStepError = useMemo(() => {
+    if (goalForm.modelType === "time") {
+      return null;
+    }
+
+    if (measurementLevel === "type") {
+      return null;
+    }
+
+    if (measurementLevel === "category" && !goalForm.categoryKey) {
+      return "Choose a category.";
+    }
+
+    if (measurementLevel === "unit" && !goalForm.presetKey) {
+      return "Choose a preset unit.";
+    }
+
+    if (!goalForm.categoryKey || !goalForm.presetKey) {
+      return "Choose a category and preset unit.";
+    }
+
+    return null;
+  }, [goalForm.categoryKey, goalForm.modelType, goalForm.presetKey, measurementLevel]);
+
+  const currentStepError =
+    goalWizardStep === 1 ? measurementStepError : stepErrors[goalWizardStep];
+
+  const isCurrentStepValid = currentStepError === null;
+  const wizardProgressPercent =
+    ((goalWizardStep + 1) / WIZARD_STEPS.length) * 100;
+  const wizardCardKey =
+    goalWizardStep === 1 ? `measurement-${measurementLevel}` : `step-${goalWizardStep}`;
+  const wizardCardDirectionClass =
+    wizardMotionDirection === "backward"
+      ? styles.wizardCardBackward
+      : styles.wizardCardForward;
+
+  useEffect(() => {
+    wizardHeadingRef.current?.focus();
+  }, [wizardCardKey]);
+
   const loadGoals = async (activeSession: Session | null) => {
     if (!activeSession) return;
     setGoalsLoading(true);
-    const { data, error } = await supabase
+    const selectWithTracking =
+      "id,title,start_at,deadline_at,model_type,goal_type,cadence,goal_category,count_unit_preset,cadence_target_value,total_target_value,total_progress_value,target_value,target_unit,privacy,status,commitment_id,commitment_tx_hash,commitment_chain_id,commitment_created_at,created_at";
+    const selectLegacy =
+      "id,title,start_at,deadline_at,model_type,target_value,target_unit,privacy,status,commitment_id,commitment_tx_hash,commitment_chain_id,commitment_created_at,created_at";
+
+    const withTracking = await supabase
       .from("goals")
-      .select(
-        "id,title,start_at,deadline_at,model_type,target_value,target_unit,privacy,status,commitment_id,commitment_tx_hash,commitment_chain_id,commitment_created_at,created_at"
-      )
+      .select(selectWithTracking)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      setGoalError(error.message);
-      setGoals([]);
-    } else {
-      setGoals(data ?? []);
+    if (withTracking.error) {
+      if (!isMissingGoalTrackingColumnsError(withTracking.error.message)) {
+        setGoalError(withTracking.error.message);
+        setGoals([]);
+        setGoalsLoading(false);
+        return;
+      }
+
+      const legacy = await supabase
+        .from("goals")
+        .select(selectLegacy)
+        .order("created_at", { ascending: false });
+
+      if (legacy.error) {
+        setGoalError(legacy.error.message);
+        setGoals([]);
+      } else {
+        setGoals((legacy.data ?? []) as Goal[]);
+      }
+      setGoalsLoading(false);
+      return;
     }
+
+    setGoals((withTracking.data ?? []) as Goal[]);
     setGoalsLoading(false);
   };
 
@@ -207,10 +533,80 @@ export default function Home() {
     signInWithWallet,
   ]);
 
-  const handleCreateGoal = async (event: FormEvent) => {
-    event.preventDefault();
+  const handleWizardBack = () => {
     setGoalError(null);
     setGoalMessage(null);
+    if (goalWizardStep === 1) {
+      if (measurementLevel === "unit") {
+        setWizardMotionDirection("backward");
+        setMeasurementLevel("category");
+        return;
+      }
+      if (measurementLevel === "category") {
+        setWizardMotionDirection("backward");
+        setMeasurementLevel("type");
+        return;
+      }
+    }
+    if (goalWizardStep === 0) return;
+    setWizardMotionDirection("backward");
+    setGoalWizardStep((current) => Math.max(current - 1, 0));
+  };
+
+  const handleWizardContinue = () => {
+    setGoalError(null);
+    setGoalMessage(null);
+    if (!isCurrentStepValid) {
+      setGoalError(currentStepError ?? "Please complete this step.");
+      return;
+    }
+
+    if (goalWizardStep === 1) {
+      if (measurementLevel === "type") {
+        if (goalForm.modelType === "count") {
+          setWizardMotionDirection("forward");
+          setMeasurementLevel("category");
+          return;
+        }
+        setWizardMotionDirection("forward");
+        setGoalWizardStep((current) =>
+          Math.min(current + 1, WIZARD_STEPS.length - 1)
+        );
+        return;
+      }
+
+      if (measurementLevel === "category") {
+        setWizardMotionDirection("forward");
+        setMeasurementLevel("unit");
+        return;
+      }
+
+      if (measurementLevel === "unit") {
+        setWizardMotionDirection("forward");
+        setGoalWizardStep((current) =>
+          Math.min(current + 1, WIZARD_STEPS.length - 1)
+        );
+        return;
+      }
+
+      return;
+    }
+
+    setWizardMotionDirection("forward");
+    setGoalWizardStep((current) =>
+      Math.min(current + 1, WIZARD_STEPS.length - 1)
+    );
+  };
+
+  const handleCreateGoal = async () => {
+    setGoalError(null);
+    setGoalMessage(null);
+    const lastStepIndex = WIZARD_STEPS.length - 1;
+
+    if (goalWizardStep !== lastStepIndex) {
+      setGoalError("Use Continue to reach Review before saving.");
+      return;
+    }
 
     if (!session?.user?.id) {
       setGoalError("Sign in to create a goal.");
@@ -222,46 +618,104 @@ export default function Home() {
       return;
     }
 
+    if (goalForm.modelType === "count" && (!goalForm.categoryKey || !goalForm.presetKey)) {
+      setGoalError("Choose a category and preset unit.");
+      return;
+    }
+
+    const cadenceTargetInputValue = parseStrictPositiveInteger(goalForm.cadenceTargetValue);
+    if (!cadenceTargetInputValue) {
+      setGoalError("Target must be a whole number greater than 0.");
+      return;
+    }
+
+    const cadenceTargetValue =
+      goalForm.modelType === "time" && durationInputUnit === "hours"
+        ? cadenceTargetInputValue * 60
+        : cadenceTargetInputValue;
+
+    if (!Number.isSafeInteger(cadenceTargetValue)) {
+      setGoalError("Target value is too large.");
+      return;
+    }
+
+    if (
+      goalForm.modelType === "time" &&
+      goalForm.cadence !== "by_deadline" &&
+      cadenceTargetValue < 5
+    ) {
+      setGoalError("Duration goals need at least 5 minutes for daily/weekly cadence.");
+      return;
+    }
+
+    if (!goalForm.startDate) {
+      setGoalError("Start date is required.");
+      return;
+    }
+
     if (!goalForm.deadline) {
       setGoalError("Deadline is required.");
       return;
     }
 
-    if (goalForm.hasStartDate && !goalForm.startDate) {
-      setGoalError("Start date is required when enabled.");
+    if (!dateRangeDays) {
+      setGoalError("Start date must be on or before the deadline.");
       return;
     }
 
-    const requiresTarget = goalForm.modelType !== "milestone";
-    const targetValueNumber = requiresTarget
-      ? Number(goalForm.targetValue)
-      : null;
-
-    if (requiresTarget && (!targetValueNumber || targetValueNumber <= 0)) {
-      setGoalError("Goal value must be greater than 0.");
+    if (!totalTargetValue) {
+      setGoalError("Could not compute total target from the selected cadence.");
       return;
     }
 
-    const startISO = goalForm.hasStartDate && goalForm.startDate
-      ? new Date(`${goalForm.startDate}T00:00:00`).toISOString()
-      : null;
+    const targetValueNumber = totalTargetValue;
+    const targetUnitValue =
+      goalForm.modelType === "time"
+        ? "minutes"
+        : getPresetLabel(goalForm.presetKey)?.toLowerCase() ?? "units";
+
+    const startISO = new Date(`${goalForm.startDate}T00:00:00`).toISOString();
     const deadlineISO = new Date(`${goalForm.deadline}T00:00:00`).toISOString();
 
-    const { data: goalData, error } = await supabase
+    const legacyPayload = {
+      user_id: session.user.id,
+      title: goalForm.title.trim(),
+      start_at: startISO,
+      deadline_at: deadlineISO,
+      model_type: goalForm.modelType,
+      target_value: targetValueNumber,
+      target_unit: targetUnitValue,
+      privacy: "private" as const,
+      status: "active" as const,
+    };
+
+    const trackingFields = toLegacyCompatibleGoalTrackingFields({
+      modelType: goalForm.modelType,
+      targetValue: targetValueNumber,
+      targetUnit: targetUnitValue,
+      cadence: goalForm.cadence,
+      category: goalForm.modelType === "count" ? goalForm.categoryKey : null,
+      preset: goalForm.modelType === "count" ? goalForm.presetKey : "minutes",
+      cadenceTargetValue,
+      totalTargetValue: targetValueNumber,
+    });
+
+    let { data: goalData, error } = await supabase
       .from("goals")
       .insert({
-        user_id: session.user.id,
-        title: goalForm.title.trim(),
-        start_at: startISO,
-        deadline_at: deadlineISO,
-        model_type: goalForm.modelType,
-        target_value: targetValueNumber,
-        target_unit: goalForm.targetUnit.trim() || null,
-        privacy: "private",
-        status: "active",
+        ...legacyPayload,
+        ...trackingFields,
       })
       .select("id")
       .single();
+
+    if (error && isMissingGoalTrackingColumnsError(error.message)) {
+      ({ data: goalData, error } = await supabase
+        .from("goals")
+        .insert(legacyPayload)
+        .select("id")
+        .single());
+    }
 
     if (error) {
       setGoalError(error.message);
@@ -277,6 +731,9 @@ export default function Home() {
         data: {
           title: goalForm.title.trim(),
           modelType: goalForm.modelType,
+          cadence: goalForm.cadence,
+          goalCategory: goalForm.modelType === "count" ? goalForm.categoryKey : null,
+          unitPreset: goalForm.modelType === "count" ? goalForm.presetKey : "minutes",
         },
       });
 
@@ -287,13 +744,18 @@ export default function Home() {
 
     setGoalForm({
       title: "",
-      hasStartDate: false,
-      startDate: "",
-      deadline: "",
       modelType: "count",
-      targetValue: "",
-      targetUnit: "",
+      categoryKey: "",
+      presetKey: "",
+      cadence: "by_deadline",
+      cadenceTargetValue: "",
+      startDate: defaultStartDate,
+      deadline: "",
     });
+    setDurationInputUnit("minutes");
+    setMeasurementLevel("type");
+    setWizardMotionDirection("forward");
+    setGoalWizardStep(0);
     setGoalMessage("Goal created.");
     await loadGoals(session);
   };
@@ -347,257 +809,441 @@ export default function Home() {
             ) : (
               <>
                 <h1 className={styles.panelHeading}>Create your first goal</h1>
-                <p className={styles.panelSubheading}>
-                  Keep it lightweight. You can publish for sponsorship when you are ready.
-                </p>
-                <form className={styles.form} onSubmit={handleCreateGoal}>
-                  <div className={styles.field}>
-                    <label className={styles.label} htmlFor="goal-title">
-                      Goal title
-                    </label>
-                    <input
-                      id="goal-title"
-                      className={styles.input}
-                      value={goalForm.title}
-                      onChange={(event) =>
-                        setGoalForm((current) => ({
-                          ...current,
-                          title: event.target.value,
-                        }))
-                      }
-                      placeholder="Run 12 miles by April"
-                    />
-                  </div>
-                  <div className={styles.row}>
-                    <div className={styles.field}>
-                      <label className={styles.label} htmlFor="goal-deadline">
-                        <span className={styles.labelInline}>
-                          Deadline
-                          <span className={styles.checkboxInline}>
+                <form
+                  className={styles.wizard}
+                  onSubmit={(event: FormEvent) => event.preventDefault()}
+                >
+                  <div className={styles.wizardPanel}>
+                    <div className={styles.wizardProgressHeader}>
+                      <div className={styles.wizardStepTag}>
+                        Step {goalWizardStep + 1} of {WIZARD_STEPS.length}
+                      </div>
+                      <div className={styles.wizardProgressTrack} aria-hidden="true">
+                        <div
+                          className={styles.wizardProgressFill}
+                          style={{ width: `${wizardProgressPercent}%` }}
+                        />
+                      </div>
+                      <div className={styles.wizardStepLabel}>
+                        {WIZARD_STEPS[goalWizardStep]}
+                      </div>
+                    </div>
+
+                    <div
+                      key={wizardCardKey}
+                      className={`${styles.wizardCardBody} ${wizardCardDirectionClass}`}
+                    >
+                      {goalWizardStep === 0 ? (
+                        <>
+                          <h3
+                            ref={wizardHeadingRef}
+                            tabIndex={-1}
+                            className={styles.wizardHeading}
+                          >
+                            What do you want to do?
+                          </h3>
+                          <p className={styles.wizardSubheading}>
+                            Keep the title short and specific. You can tune pacing next.
+                          </p>
+                          <div className={styles.field}>
+                            <label className={styles.label} htmlFor="goal-title">
+                              Goal title
+                            </label>
                             <input
-                              type="checkbox"
-                              className={styles.checkbox}
-                              checked={goalForm.hasStartDate}
+                              id="goal-title"
+                              className={styles.input}
+                              value={goalForm.title}
                               onChange={(event) =>
                                 setGoalForm((current) => ({
                                   ...current,
-                                  hasStartDate: event.target.checked,
-                                  startDate: event.target.checked ? current.startDate : "",
+                                  title: event.target.value,
                                 }))
                               }
+                              placeholder="Read one hour every day this year"
                             />
-                            Add start date
-                          </span>
-                        </span>
-                      </label>
-                      <input
-                        id="goal-deadline"
-                        type="date"
-                        className={styles.input}
-                        value={goalForm.deadline}
-                        onChange={(event) =>
-                          setGoalForm((current) => ({
-                            ...current,
-                            deadline: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                    {goalForm.hasStartDate ? (
-                      <div className={styles.field}>
-                        <label className={styles.label} htmlFor="goal-start">
-                          Start date
-                        </label>
-                        <input
-                          id="goal-start"
-                          type="date"
-                          className={styles.input}
-                          value={goalForm.startDate}
-                          onChange={(event) =>
-                            setGoalForm((current) => ({
-                              ...current,
-                              startDate: event.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                    ) : (
-                      <div className={styles.field}>
-                        <label className={styles.label} htmlFor="goal-model">
-                          <span className={styles.labelRow}>
-                            Model
-                            <span className={styles.tooltip}>
+                          </div>
+                        </>
+                      ) : null}
+
+                      {goalWizardStep === 1 ? (
+                        <>
+                          <h3
+                            ref={wizardHeadingRef}
+                            tabIndex={-1}
+                            className={styles.wizardHeading}
+                          >
+                            {measurementLevel === "type"
+                              ? "How do you want to track this goal?"
+                              : measurementLevel === "category"
+                                ? "Which area fits this goal best?"
+                                : "What exactly will you log?"}
+                          </h3>
+                          <p className={styles.wizardSubheading}>
+                            {measurementLevel === "type"
+                              ? "Choose the simplest way to track progress."
+                              : measurementLevel === "category"
+                                ? "Pick the life area this goal belongs to."
+                                : "Choose one unit to track in each check-in."}
+                          </p>
+
+                          {measurementLevel === "type" ? (
+                            <div className={styles.optionGrid}>
                               <button
                                 type="button"
-                                className={styles.tooltipTrigger}
-                                aria-label="Model help"
+                                className={`${styles.optionCard} ${styles.staggerReveal} ${goalForm.modelType === "count" ? styles.optionCardSelected : ""}`}
+                                style={staggerStyle(0)}
+                                onClick={() =>
+                                  setGoalForm((current) => ({
+                                    ...current,
+                                    modelType: "count",
+                                    categoryKey: "",
+                                    presetKey: "",
+                                  }))
+                                }
                               >
-                                ?
+                                <span className={styles.optionTitle}>Track amount</span>
+                                <span className={styles.optionBody}>
+                                  Log how much you do, like pages, workouts, or savings.
+                                </span>
                               </button>
-                              <span className={styles.tooltipContent}>
-                                <span className={styles.tooltipLine}>
-                                  Model – Count-based: Track a number-based goal. e.g. Run 12
-                                  miles by April or Lose 10 lbs this month.
-                                </span>
-                                <span className={styles.tooltipLine}>
-                                  Model – Time-based: Track total time. e.g. 600 minutes of yoga
-                                  in 30 days.
-                                </span>
-                                <span className={styles.tooltipLine}>
-                                  Model – Milestone-based: Track steps by date. e.g. 5k in
-                                  March, 10k in May.
-                                </span>
-                              </span>
-                            </span>
-                          </span>
-                        </label>
-                        <select
-                          id="goal-model"
-                          className={styles.select}
-                          value={goalForm.modelType}
-                          onChange={(event) =>
-                            setGoalForm((current) => ({
-                              ...current,
-                              modelType: event.target.value as GoalModelType,
-                            }))
-                          }
-                        >
-                          <option value="count">Count-based</option>
-                          <option value="time">Time-based</option>
-                          <option value="milestone">Milestone-based</option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                  {goalForm.hasStartDate ? (
-                    <div className={styles.row}>
-                      <div className={styles.field}>
-                        <label className={styles.label} htmlFor="goal-model">
-                          <span className={styles.labelRow}>
-                            Model
-                            <span className={styles.tooltip}>
                               <button
                                 type="button"
-                                className={styles.tooltipTrigger}
-                                aria-label="Model help"
+                                className={`${styles.optionCard} ${styles.staggerReveal} ${goalForm.modelType === "time" ? styles.optionCardSelected : ""}`}
+                                style={staggerStyle(1)}
+                                onClick={() =>
+                                  setGoalForm((current) => ({
+                                    ...current,
+                                    modelType: "time",
+                                    categoryKey: "",
+                                    presetKey: "",
+                                  }))
+                                }
                               >
-                                ?
+                                <span className={styles.optionTitle}>Track time</span>
+                                <span className={styles.optionBody}>
+                                  Log time spent in minutes or hours.
+                                </span>
                               </button>
-                              <span className={styles.tooltipContent}>
-                                <span className={styles.tooltipLine}>
-                                  Model – Count-based: Track a number-based goal. e.g. Run 12
-                                  miles by April or Lose 10 lbs this month.
-                                </span>
-                                <span className={styles.tooltipLine}>
-                                  Model – Time-based: Track total time. e.g. 600 minutes of yoga
-                                  in 30 days.
-                                </span>
-                                <span className={styles.tooltipLine}>
-                                  Model – Milestone-based: Track steps by date. e.g. 5k in
-                                  March, 10k in May.
-                                </span>
+                            </div>
+                          ) : null}
+
+                          {measurementLevel === "category" && goalForm.modelType === "count" ? (
+                            <div className={styles.field}>
+                              <div className={styles.categoryGrid}>
+                                {GOAL_PRESET_CATEGORIES.map((category, index) => (
+                                  <button
+                                    key={category.key}
+                                    type="button"
+                                    className={`${styles.categoryCard} ${styles.staggerReveal} ${goalForm.categoryKey === category.key ? styles.categoryCardSelected : ""}`}
+                                    style={staggerStyle(index)}
+                                    onClick={() =>
+                                      setGoalForm((current) => ({
+                                        ...current,
+                                        categoryKey: category.key,
+                                        presetKey: category.presets[0]?.key ?? "",
+                                      }))
+                                    }
+                                  >
+                                    {category.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {measurementLevel === "unit" && goalForm.modelType === "count" ? (
+                            <div className={styles.field}>
+                              <div className={styles.presetWrap}>
+                                {(selectedCategory?.presets ?? []).map((preset, index) => (
+                                  <button
+                                    key={preset.key}
+                                    type="button"
+                                    className={`${styles.presetChip} ${styles.staggerReveal} ${goalForm.presetKey === preset.key ? styles.presetChipSelected : ""}`}
+                                    style={staggerStyle(index)}
+                                    onClick={() =>
+                                      setGoalForm((current) => ({
+                                        ...current,
+                                        presetKey: preset.key,
+                                      }))
+                                    }
+                                  >
+                                    {preset.label}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className={styles.helper}>{selectedUnitGuidance}</div>
+                            </div>
+                          ) : null}
+
+                          {goalForm.modelType === "time" ? (
+                            <div className={styles.inlineNote}>
+                              You can choose minutes or hours in the next step.
+                            </div>
+                          ) : null}
+                        </>
+                      ) : null}
+
+                      {goalWizardStep === 2 ? (
+                        <>
+                          <h3
+                            ref={wizardHeadingRef}
+                            tabIndex={-1}
+                            className={styles.wizardHeading}
+                          >
+                            How often should this happen?
+                          </h3>
+                          <p className={styles.wizardSubheading}>
+                            Choose cadence, then define the target for that cadence.
+                          </p>
+                          <div className={styles.optionGrid}>
+                            {CADENCE_OPTIONS.map((option, index) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={`${styles.optionCard} ${styles.staggerReveal} ${goalForm.cadence === option.value ? styles.optionCardSelected : ""}`}
+                                style={staggerStyle(index)}
+                                onClick={() =>
+                                  setGoalForm((current) => ({
+                                    ...current,
+                                    cadence: option.value,
+                                  }))
+                                }
+                              >
+                                <span className={styles.optionTitle}>{option.title}</span>
+                                <span className={styles.optionBody}>{option.description}</span>
+                              </button>
+                            ))}
+                          </div>
+
+                          {goalForm.modelType === "time" ? (
+                            <div className={styles.durationInlineRow}>
+                              <div className={`${styles.field} ${styles.durationUnitField}`}>
+                                <label className={styles.label}>Duration unit</label>
+                                <div className={styles.presetWrap}>
+                                  {(["minutes", "hours"] as const).map((unit, index) => (
+                                    <button
+                                      key={unit}
+                                      type="button"
+                                      className={`${styles.presetChip} ${styles.staggerReveal} ${durationInputUnit === unit ? styles.presetChipSelected : ""}`}
+                                      style={staggerStyle(index)}
+                                      onClick={() => {
+                                        if (unit === durationInputUnit) return;
+                                        setDurationInputUnit(unit);
+                                        setGoalForm((current) => ({
+                                          ...current,
+                                          cadenceTargetValue: "",
+                                        }));
+                                      }}
+                                    >
+                                      {unit === "minutes" ? "Minutes" : "Hours"}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className={`${styles.field} ${styles.durationTargetField}`}>
+                                <label className={styles.label} htmlFor="goal-cadence-target">
+                                  {goalForm.cadence === "daily"
+                                    ? `Target per day (${durationUnitLabel})`
+                                    : goalForm.cadence === "weekly"
+                                      ? `Target per week (${durationUnitLabel})`
+                                      : `Total target (${durationUnitLabel})`}
+                                </label>
+                                <input
+                                  id="goal-cadence-target"
+                                  type="number"
+                                  min={1}
+                                  step={1}
+                                  className={`${styles.input} ${styles.durationTargetInput}`}
+                                  value={goalForm.cadenceTargetValue}
+                                  onChange={(event) =>
+                                    setGoalForm((current) => ({
+                                      ...current,
+                                      cadenceTargetValue: event.target.value,
+                                    }))
+                                  }
+                                  placeholder={durationInputUnit === "hours" ? "e.g. 1" : "e.g. 60"}
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className={styles.field}>
+                              <label className={styles.label} htmlFor="goal-cadence-target">
+                                {goalForm.cadence === "daily"
+                                  ? "Target per day"
+                                  : goalForm.cadence === "weekly"
+                                    ? "Target per week"
+                                    : "Total target"}
+                              </label>
+                              <input
+                                id="goal-cadence-target"
+                                type="number"
+                                min={1}
+                                step={1}
+                                className={styles.input}
+                                value={goalForm.cadenceTargetValue}
+                                onChange={(event) =>
+                                  setGoalForm((current) => ({
+                                    ...current,
+                                    cadenceTargetValue: event.target.value,
+                                  }))
+                                }
+                                placeholder="e.g. 60"
+                              />
+                            </div>
+                          )}
+                        </>
+                      ) : null}
+
+                      {goalWizardStep === 3 ? (
+                        <>
+                          <h3
+                            ref={wizardHeadingRef}
+                            tabIndex={-1}
+                            className={styles.wizardHeading}
+                          >
+                            What is your time window?
+                          </h3>
+                          <p className={styles.wizardSubheading}>
+                            Start date and deadline are required for consistent tracking.
+                          </p>
+                          <div className={styles.row}>
+                            <div className={styles.field}>
+                              <label className={styles.label} htmlFor="goal-start">
+                                Start date
+                              </label>
+                              <input
+                                id="goal-start"
+                                type="date"
+                                className={styles.input}
+                                value={goalForm.startDate}
+                                onChange={(event) =>
+                                  setGoalForm((current) => ({
+                                    ...current,
+                                    startDate: event.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className={styles.field}>
+                              <label className={styles.label} htmlFor="goal-deadline">
+                                Deadline
+                              </label>
+                              <input
+                                id="goal-deadline"
+                                type="date"
+                                className={styles.input}
+                                value={goalForm.deadline}
+                                onChange={(event) =>
+                                  setGoalForm((current) => ({
+                                    ...current,
+                                    deadline: event.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          </div>
+                          {dateRangeDays ? (
+                            <div className={styles.inlineNote}>
+                              {dateRangeDays} days in range ({cadenceOccurrences ?? 0}{" "}
+                              {goalForm.cadence === "weekly" ? "weeks" : "cycles"} counted).
+                            </div>
+                          ) : null}
+                        </>
+                      ) : null}
+
+                      {goalWizardStep === 4 ? (
+                        <>
+                          <h3
+                            ref={wizardHeadingRef}
+                            tabIndex={-1}
+                            className={styles.wizardHeading}
+                          >
+                            Review your goal
+                          </h3>
+                          <p className={styles.wizardSubheading}>
+                            Confirm this setup before saving.
+                          </p>
+                          <div className={styles.reviewCard}>
+                            <div className={styles.reviewRow}>
+                              <span className={styles.reviewLabel}>Measurement</span>
+                              <span>
+                                {goalForm.modelType === "time"
+                                  ? "Track time"
+                                  : "Track amount"}
                               </span>
-                            </span>
-                          </span>
-                        </label>
-                        <select
-                          id="goal-model"
-                          className={styles.select}
-                          value={goalForm.modelType}
-                          onChange={(event) =>
-                            setGoalForm((current) => ({
-                              ...current,
-                              modelType: event.target.value as GoalModelType,
-                            }))
-                          }
+                            </div>
+                            {goalForm.modelType === "time" ? (
+                              <div className={styles.reviewRow}>
+                                <span className={styles.reviewLabel}>Duration unit</span>
+                                <span>{durationInputUnit}</span>
+                              </div>
+                            ) : null}
+                            {goalForm.modelType === "count" ? (
+                              <div className={styles.reviewRow}>
+                                <span className={styles.reviewLabel}>Unit</span>
+                                <span>{selectedPreset?.label ?? "-"}</span>
+                              </div>
+                            ) : null}
+                            <div className={styles.reviewRow}>
+                              <span className={styles.reviewLabel}>Cadence</span>
+                              <span>{goalForm.cadence.replace("_", " ")}</span>
+                            </div>
+                            <div className={styles.reviewRow}>
+                              <span className={styles.reviewLabel}>Total target</span>
+                              <span>
+                                {goalForm.modelType === "time"
+                                  ? `${totalTargetValue ?? "-"} minutes`
+                                  : `${totalTargetValue ?? "-"} ${goalUnitLabel}`}
+                              </span>
+                            </div>
+                            <div className={styles.reviewSummary}>
+                              {goalSummary ?? "Complete previous steps to generate summary."}
+                            </div>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+
+                    {goalError ? <div className={styles.message}>{goalError}</div> : null}
+                    {goalMessage ? (
+                      <div className={`${styles.message} ${styles.success}`}>{goalMessage}</div>
+                    ) : null}
+
+                    <div className={`${styles.buttonRow} ${styles.wizardActions}`}>
+                      <button
+                        type="button"
+                        className={styles.buttonGhost}
+                        onClick={handleWizardBack}
+                        disabled={goalWizardStep === 0}
+                      >
+                        Back
+                      </button>
+                      {goalWizardStep < WIZARD_STEPS.length - 1 ? (
+                        <button
+                          type="button"
+                          className={styles.buttonPrimary}
+                          onClick={handleWizardContinue}
+                          disabled={!isCurrentStepValid}
                         >
-                          <option value="count">Count-based</option>
-                          <option value="time">Time-based</option>
-                          <option value="milestone">Milestone-based</option>
-                        </select>
-                      </div>
+                          Continue
+                        </button>
+                      ) : (
+                        <button
+                          className={styles.buttonPrimary}
+                          type="button"
+                          onClick={() => {
+                            void handleCreateGoal();
+                          }}
+                          disabled={!isCurrentStepValid}
+                        >
+                          Save goal
+                        </button>
+                      )}
+                      <span className={styles.footerNote}>
+                        Your goals stay private until you publish them.
+                      </span>
                     </div>
-                  ) : null}
-                  <div className={styles.row}>
-                    <div className={styles.field}>
-                      <label className={styles.label} htmlFor="goal-target">
-                        <span className={styles.labelRow}>
-                          Goal value
-                          <span className={styles.tooltip}>
-                            <button
-                              type="button"
-                              className={styles.tooltipTrigger}
-                              aria-label="Goal value help"
-                            >
-                              ?
-                            </button>
-                            <span className={styles.tooltipContent}>
-                              <span className={styles.tooltipLine}>
-                                The number of units you want to reach
-                              </span>
-                            </span>
-                          </span>
-                        </span>
-                      </label>
-                      <input
-                        id="goal-target"
-                        type="number"
-                        className={styles.input}
-                        value={goalForm.targetValue}
-                        onChange={(event) =>
-                          setGoalForm((current) => ({
-                            ...current,
-                            targetValue: event.target.value,
-                          }))
-                        }
-                        placeholder="12"
-                      />
-                    </div>
-                    <div className={styles.field}>
-                      <label className={styles.label} htmlFor="goal-unit">
-                        <span className={styles.labelRow}>
-                          Goal unit
-                          <span className={styles.tooltip}>
-                            <button
-                              type="button"
-                              className={styles.tooltipTrigger}
-                              aria-label="Goal unit help"
-                            >
-                              ?
-                            </button>
-                            <span className={styles.tooltipContent}>
-                              <span className={styles.tooltipLine}>
-                                What the Goal Value represents. e.g. miles, lbs, minutes
-                              </span>
-                            </span>
-                          </span>
-                        </span>
-                      </label>
-                      <input
-                        id="goal-unit"
-                        className={styles.input}
-                        value={goalForm.targetUnit}
-                        onChange={(event) =>
-                          setGoalForm((current) => ({
-                            ...current,
-                            targetUnit: event.target.value,
-                          }))
-                        }
-                        placeholder="miles"
-                      />
-                    </div>
-                  </div>
-                  {goalError ? <div className={styles.message}>{goalError}</div> : null}
-                  {goalMessage ? (
-                    <div className={`${styles.message} ${styles.success}`}>{goalMessage}</div>
-                  ) : null}
-                  <div className={styles.buttonRow}>
-                    <button className={styles.buttonPrimary} type="submit">
-                      Save goal
-                    </button>
-                    <span className={styles.footerNote}>
-                      Your goals stay private until you publish them.
-                    </span>
                   </div>
                 </form>
               </>

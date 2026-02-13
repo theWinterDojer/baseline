@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.33;
 
 contract HabitRegistry {
     error CadenceZero();
@@ -7,12 +7,7 @@ contract HabitRegistry {
     error NotCommitmentCreator();
     error TimestampZero();
     error ProofHashZero();
-    error AmountZero();
-    error DeadlineInPast();
-    error PledgeNotFound();
-    error PledgeAlreadySettled();
-    error PledgeSettlementNotAuthorized();
-    error PledgeEscrowNotImplemented();
+    error PledgeFlowDisabled();
 
     struct Commitment {
         address creator;
@@ -23,22 +18,9 @@ contract HabitRegistry {
         bool exists;
     }
 
-    struct Pledge {
-        uint256 commitmentId;
-        address sponsor;
-        uint256 amount;
-        uint256 deadline;
-        uint256 minCheckIns;
-        uint256 createdAt;
-        bool settled;
-        bool exists;
-    }
-
     uint256 private _nextCommitmentId = 1;
-    uint256 private _nextPledgeId = 1;
 
     mapping(uint256 => Commitment) public commitments;
-    mapping(uint256 => Pledge) public pledges;
 
     event CommitmentCreated(
         uint256 indexed commitmentId,
@@ -54,17 +36,6 @@ contract HabitRegistry {
         bytes32 proofHash,
         uint256 timestamp
     );
-
-    event PledgeCreated(
-        uint256 indexed pledgeId,
-        uint256 indexed commitmentId,
-        address indexed sponsor,
-        uint256 amount,
-        uint256 deadline,
-        uint256 minCheckIns
-    );
-
-    event PledgeSettled(uint256 indexed pledgeId, address indexed settledBy);
 
     function createCommitment(
         bytes32 habitHash,
@@ -101,51 +72,15 @@ contract HabitRegistry {
     }
 
     function createPledge(
-        uint256 commitmentId,
-        uint256 amount,
-        uint256 deadline,
-        uint256 minCheckIns
-    ) external payable returns (uint256 pledgeId) {
-        if (msg.value != 0) revert PledgeEscrowNotImplemented();
-        if (amount == 0) revert AmountZero();
-        if (deadline <= block.timestamp) revert DeadlineInPast();
-
-        Commitment memory c = commitments[commitmentId];
-        if (!c.exists) revert CommitmentNotFound();
-
-        pledgeId = _nextPledgeId++;
-        pledges[pledgeId] = Pledge({
-            commitmentId: commitmentId,
-            sponsor: msg.sender,
-            amount: amount,
-            deadline: deadline,
-            minCheckIns: minCheckIns,
-            createdAt: block.timestamp,
-            settled: false,
-            exists: true
-        });
-
-        emit PledgeCreated(
-            pledgeId,
-            commitmentId,
-            msg.sender,
-            amount,
-            deadline,
-            minCheckIns
-        );
+        uint256,
+        uint256,
+        uint256,
+        uint256
+    ) external payable returns (uint256) {
+        revert PledgeFlowDisabled();
     }
 
-    function settlePledge(uint256 pledgeId) external {
-        Pledge storage pledge = pledges[pledgeId];
-        if (!pledge.exists) revert PledgeNotFound();
-        if (pledge.settled) revert PledgeAlreadySettled();
-
-        Commitment memory c = commitments[pledge.commitmentId];
-        if (msg.sender != pledge.sponsor && msg.sender != c.creator) {
-            revert PledgeSettlementNotAuthorized();
-        }
-
-        pledge.settled = true;
-        emit PledgeSettled(pledgeId, msg.sender);
+    function settlePledge(uint256) external {
+        revert PledgeFlowDisabled();
     }
 }

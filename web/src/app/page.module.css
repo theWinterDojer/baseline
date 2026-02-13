@@ -177,10 +177,280 @@
   gap: 16px;
 }
 
+.wizard {
+  width: min(100%, 760px);
+  margin: 0 auto;
+}
+
+.wizardPanel {
+  border: 1px solid rgba(90, 61, 43, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 252, 244, 0.86);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.wizardProgressHeader {
+  display: grid;
+  gap: 10px;
+}
+
+.wizardCardBody {
+  display: grid;
+  gap: 14px;
+}
+
+.wizardCardForward {
+  animation: cardEnterForward 0.2s ease-out;
+}
+
+.wizardCardBackward {
+  animation: cardEnterBackward 0.2s ease-out;
+}
+
+.wizardStepTag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(90, 61, 43, 0.2);
+  background: rgba(255, 236, 180, 0.68);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #4b4235;
+}
+
+.wizardProgressTrack {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(90, 61, 43, 0.16);
+  overflow: hidden;
+}
+
+.wizardProgressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e5771e 0%, #f4a127 100%);
+  transition: width 0.22s ease-out;
+}
+
+.wizardStepLabel {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5a4f40;
+}
+
+.wizardHeading {
+  margin: 0;
+  font-family: var(--font-display), serif;
+  font-size: 24px;
+  color: #1f1b16;
+}
+
+.wizardHeading:focus-visible {
+  outline: 2px solid rgba(229, 119, 30, 0.45);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.wizardSubheading {
+  margin: -2px 0 2px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #5f5548;
+}
+
+.optionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.optionCard {
+  border: 1px solid rgba(90, 61, 43, 0.2);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  min-height: 44px;
+  padding: 14px;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.optionCard:focus-visible {
+  outline: 2px solid rgba(229, 119, 30, 0.45);
+  outline-offset: 2px;
+}
+
+.optionCard:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 20px rgba(90, 61, 43, 0.12);
+}
+
+.optionCardSelected {
+  border-color: rgba(229, 119, 30, 0.46);
+  box-shadow: 0 12px 22px rgba(229, 119, 30, 0.14);
+  background: rgba(255, 245, 217, 0.9);
+  animation: selectionPop 0.18s ease-out;
+}
+
+.optionTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2d261e;
+}
+
+.optionBody {
+  font-size: 12px;
+  color: #635949;
+  line-height: 1.45;
+}
+
+.categoryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.categoryCard {
+  border: 1px solid rgba(90, 61, 43, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.75);
+  min-height: 52px;
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #4f4538;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.categoryCard:focus-visible {
+  outline: 2px solid rgba(229, 119, 30, 0.4);
+  outline-offset: 2px;
+}
+
+.categoryCardSelected {
+  border-color: rgba(117, 200, 174, 0.65);
+  background: rgba(226, 249, 241, 0.9);
+  box-shadow: 0 8px 16px rgba(117, 200, 174, 0.16);
+  animation: selectionPop 0.18s ease-out;
+}
+
+.presetWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.presetChip {
+  border: 1px solid rgba(90, 61, 43, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  min-height: 44px;
+  padding: 7px 11px;
+  font-size: 12px;
+  color: #4f4538;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.presetChip:focus-visible {
+  outline: 2px solid rgba(229, 119, 30, 0.4);
+  outline-offset: 2px;
+}
+
+.presetChipSelected {
+  border-color: rgba(229, 119, 30, 0.5);
+  background: rgba(255, 237, 194, 0.92);
+  box-shadow: 0 8px 14px rgba(229, 119, 30, 0.16);
+  animation: selectionPop 0.18s ease-out;
+}
+
+.staggerReveal {
+  opacity: 0;
+  animation: fadeUp 0.24s ease-out forwards;
+}
+
+.inlineNote {
+  font-size: 12px;
+  color: #635949;
+  border-radius: 10px;
+  border: 1px dashed rgba(90, 61, 43, 0.24);
+  padding: 10px 12px;
+  background: rgba(255, 252, 244, 0.74);
+}
+
+.reviewCard {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(90, 61, 43, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+  padding: 14px;
+}
+
+.reviewRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: #3f372d;
+}
+
+.reviewLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6f6455;
+  font-size: 11px;
+}
+
+.reviewSummary {
+  border-top: 1px dashed rgba(90, 61, 43, 0.25);
+  padding-top: 10px;
+  font-size: 13px;
+  color: #4a4134;
+  line-height: 1.5;
+}
+
+.wizardActions {
+  margin-top: 4px;
+}
+
 .row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
+}
+
+.durationInlineRow {
+  display: grid;
+  grid-template-columns: max-content minmax(140px, 320px);
+  align-items: end;
+  gap: 12px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.durationUnitField {
+  min-width: 0;
+}
+
+.durationTargetField {
+  min-width: 0;
+}
+
+.durationTargetInput {
+  width: 100%;
 }
 
 .field {
@@ -486,6 +756,60 @@
   }
 }
 
+@keyframes cardEnterForward {
+  0% {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes cardEnterBackward {
+  0% {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes selectionPop {
+  0% {
+    transform: scale(0.985);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizardCardForward,
+  .wizardCardBackward,
+  .staggerReveal,
+  .optionCardSelected,
+  .categoryCardSelected,
+  .presetChipSelected {
+    animation: none;
+  }
+
+  .staggerReveal {
+    opacity: 1;
+  }
+
+  .wizardProgressFill,
+  .optionCard,
+  .categoryCard,
+  .presetChip,
+  .buttonPrimary {
+    transition: none;
+  }
+}
+
 @media (max-width: 900px) {
   .main {
     grid-template-columns: 1fr;
@@ -518,5 +842,21 @@
 
   .panelHeading {
     font-size: 22px;
+  }
+
+  .wizardHeading {
+    font-size: 21px;
+  }
+
+  .wizardPanel {
+    padding: 14px;
+  }
+
+}
+
+@media (max-width: 480px) {
+  .durationInlineRow {
+    grid-template-columns: 1fr;
+    width: 100%;
   }
 }

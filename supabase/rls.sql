@@ -124,8 +124,22 @@ with check (
 create policy "check_ins_update_owner"
 on public.check_ins
 for update
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+using (
+  auth.uid() = user_id
+  and exists (
+    select 1 from public.goals g
+    where g.id = goal_id
+      and g.user_id = auth.uid()
+  )
+)
+with check (
+  auth.uid() = user_id
+  and exists (
+    select 1 from public.goals g
+    where g.id = goal_id
+      and g.user_id = auth.uid()
+  )
+);
 
 create policy "check_ins_delete_owner"
 on public.check_ins

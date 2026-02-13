@@ -24,6 +24,11 @@ import {
   mockHabitRegistry,
 } from "@/lib/contracts";
 import type { GoalModelType } from "@/lib/goalTypes";
+import {
+  isMissingGoalTrackingColumnsError,
+  isWeightSnapshotPreset,
+} from "@/lib/goalTracking";
+import { getPresetLabel } from "@/lib/goalPresets";
 import styles from "./goal.module.css";
 
 type Goal = {
@@ -35,6 +40,13 @@ type Goal = {
   completed_at: string | null;
   deadline_at: string;
   model_type: GoalModelType;
+  goal_type: "count" | "duration" | null;
+  cadence: "daily" | "weekly" | "by_deadline" | null;
+  goal_category: string | null;
+  count_unit_preset: string | null;
+  cadence_target_value: number | null;
+  total_target_value: number | null;
+  total_progress_value: number;
   target_value: number | null;
   target_unit: string | null;
   privacy: "private" | "public";
@@ -50,6 +62,9 @@ type CheckIn = {
   id: string;
   check_in_at: string;
   note: string | null;
+  progress_value: number;
+  progress_snapshot_value: number | null;
+  progress_unit: string | null;
   proof_hash: string | null;
   image_path: string | null;
   onchain_commitment_id: string | null;
@@ -81,6 +96,11 @@ const isMissingCheckInOnchainColumnsError = (message: string) =>
     "onchain_chain_id",
     "onchain_submitted_at",
   ].some((column) => message.includes(column));
+const isMissingCheckInProgressColumnsError = (message: string) =>
+  message.includes("does not exist") &&
+  ["progress_value", "progress_snapshot_value", "progress_unit"].some((column) =>
+    message.includes(column)
+  );
 
 const CHECK_IN_IMAGES_BUCKET = "checkin-images";
 const MAX_CHECK_IN_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -141,6 +161,22 @@ const formatDateInput = (value: string | null) => {
   return new Date(value).toISOString().slice(0, 10);
 };
 
+const parsePositiveInteger = (value: string): number | null => {
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+};
+
+const parseNonNegativeInteger = (value: string): number | null => {
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return null;
+  return parsed;
+};
+
 const toEditForm = (nextGoal: Goal) => ({
   title: nextGoal.title ?? "",
   hasStartDate: Boolean(nextGoal.start_at),
@@ -165,6 +201,7 @@ export default function GoalPage() {
   const [error, setError] = useState<string | null>(null);
   const [checkInError, setCheckInError] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [checkInValueInput, setCheckInValueInput] = useState("1");
   const [checkInImageFile, setCheckInImageFile] = useState<File | null>(null);
   const [checkInImagePreviewUrl, setCheckInImagePreviewUrl] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -206,10 +243,51 @@ export default function GoalPage() {
         ? Number(sessionChainIdRaw)
         : NaN;
 
+  const isDurationGoal =
+    goal?.goal_type === "duration" || goal?.model_type === "time";
+  const isWeightSnapshotGoal = isWeightSnapshotPreset(goal?.count_unit_preset);
+  const goalUnitLabel =
+    (goal?.count_unit_preset
+      ? getPresetLabel(goal.count_unit_preset)
+      : goal?.target_unit) ?? (isDurationGoal ? "minutes" : "units");
+  const progressTargetValue = goal?.total_target_value ?? goal?.target_value ?? null;
+  const isSchemaTrackingGoal =
+    goal?.goal_type !== null ||
+    goal?.cadence !== null ||
+    goal?.goal_category !== null ||
+    goal?.count_unit_preset !== null ||
+    goal?.cadence_target_value !== null ||
+    goal?.total_target_value !== null;
+
+  const latestSnapshotProgressValue = useMemo(() => {
+    if (!isWeightSnapshotGoal) return null;
+    const latestWithSnapshot = checkIns.find(
+      (checkIn) => checkIn.progress_snapshot_value !== null
+    );
+    return latestWithSnapshot?.progress_snapshot_value ?? null;
+  }, [checkIns, isWeightSnapshotGoal]);
+
+  const progressCurrentValue = useMemo(() => {
+    if (!goal) return null;
+    if (isWeightSnapshotGoal) {
+      if (latestSnapshotProgressValue !== null) {
+        return latestSnapshotProgressValue;
+      }
+      return goal.total_progress_value ?? 0;
+    }
+
+    if (typeof goal.total_progress_value === "number") {
+      return goal.total_progress_value;
+    }
+
+    return checkIns.length;
+  }, [checkIns.length, goal, isWeightSnapshotGoal, latestSnapshotProgressValue]);
+
   const progressPercent = useMemo(() => {
-    if (!goal?.target_value || goal.target_value <= 0) return 0;
-    return Math.min(Math.round((checkIns.length / goal.target_value) * 100), 100);
-  }, [goal, checkIns.length]);
+    if (!progressTargetValue || progressTargetValue <= 0) return 0;
+    if (progressCurrentValue === null || progressCurrentValue < 0) return 0;
+    return Math.min(Math.round((progressCurrentValue / progressTargetValue) * 100), 100);
+  }, [progressCurrentValue, progressTargetValue]);
 
   const isOwner = Boolean(session?.user?.id && goal?.user_id === session.user.id);
 
@@ -278,6 +356,19 @@ export default function GoalPage() {
       }
     };
   }, [checkInImagePreviewUrl]);
+
+  useEffect(() => {
+    if (!goal) return;
+    if (isWeightSnapshotPreset(goal.count_unit_preset)) {
+      setCheckInValueInput("");
+      return;
+    }
+    if (goal.goal_type === "duration" || goal.model_type === "time") {
+      setCheckInValueInput("30");
+      return;
+    }
+    setCheckInValueInput("1");
+  }, [goal]);
 
   const ensureGoalCommitmentAnchor = useCallback(
     async (currentGoal: Goal) => {
@@ -405,7 +496,7 @@ export default function GoalPage() {
     const checkInsWithImagePath = await supabase
       .from("check_ins")
       .select(
-        "id,check_in_at,note,proof_hash,image_path,onchain_commitment_id,onchain_tx_hash,onchain_chain_id,onchain_submitted_at,created_at"
+        "id,check_in_at,note,progress_value,progress_snapshot_value,progress_unit,proof_hash,image_path,onchain_commitment_id,onchain_tx_hash,onchain_chain_id,onchain_submitted_at,created_at"
       )
       .eq("goal_id", id)
       .order("check_in_at", { ascending: false });
@@ -413,7 +504,8 @@ export default function GoalPage() {
     if (
       checkInsWithImagePath.error &&
       (isMissingCheckInImagePathColumnError(checkInsWithImagePath.error.message) ||
-        isMissingCheckInOnchainColumnsError(checkInsWithImagePath.error.message))
+        isMissingCheckInOnchainColumnsError(checkInsWithImagePath.error.message) ||
+        isMissingCheckInProgressColumnsError(checkInsWithImagePath.error.message))
     ) {
       const legacyCheckIns = await supabase
         .from("check_ins")
@@ -426,6 +518,9 @@ export default function GoalPage() {
       } else {
         checkInRows = (legacyCheckIns.data ?? []).map((row) => ({
           ...row,
+          progress_value: 1,
+          progress_snapshot_value: null,
+          progress_unit: null,
           image_path: null,
           onchain_commitment_id: null,
           onchain_tx_hash: null,
@@ -522,12 +617,32 @@ export default function GoalPage() {
     let uploadedImagePath: string | null = null;
     let imageColumnUnavailable = false;
     let onchainColumnsUnavailable = false;
+    let progressColumnsUnavailable = false;
     let onchainAnchored = false;
     let anchorCreatedForLegacyPublicGoal = false;
     let activeGoal = goal;
 
     if (!activeGoal) {
       setSubmitError("Goal context is unavailable.");
+      setSubmittingCheckIn(false);
+      return;
+    }
+
+    const isActiveDurationGoal =
+      activeGoal.goal_type === "duration" || activeGoal.model_type === "time";
+    const isActiveWeightSnapshotGoal = isWeightSnapshotPreset(
+      activeGoal.count_unit_preset
+    );
+    const parsedProgressValue = isActiveWeightSnapshotGoal
+      ? parseNonNegativeInteger(checkInValueInput)
+      : parsePositiveInteger(checkInValueInput);
+
+    if (parsedProgressValue === null) {
+      setSubmitError(
+        isActiveWeightSnapshotGoal
+          ? "Enter a whole number 0 or greater for this snapshot check-in."
+          : "Enter a whole number greater than 0 for this check-in."
+      );
       setSubmittingCheckIn(false);
       return;
     }
@@ -603,6 +718,10 @@ export default function GoalPage() {
                 userId: session.user.id,
                 commitmentId: activeGoal.commitment_id,
                 checkInTimestamp,
+                progressValue: isActiveWeightSnapshotGoal ? 1 : parsedProgressValue,
+                progressSnapshotValue: isActiveWeightSnapshotGoal
+                  ? parsedProgressValue
+                  : null,
                 note: normalizedNote,
                 imageDigest,
               })
@@ -691,16 +810,28 @@ export default function GoalPage() {
       goal_id: goalId,
       user_id: session.user.id,
       check_in_at: checkInTimestamp,
+      progress_value: isActiveWeightSnapshotGoal ? 1 : parsedProgressValue,
+      progress_snapshot_value: isActiveWeightSnapshotGoal ? parsedProgressValue : null,
+      progress_unit: isActiveDurationGoal ? "minutes" : "count",
       note: normalizedNote,
       proof_hash: generatedProofHash,
     };
 
     let includeImagePathColumn = Boolean(uploadedImagePath);
     let includeOnchainColumns = true;
+    let includeProgressColumns = true;
 
     const insertCheckIn = async () =>
       supabase.from("check_ins").insert({
-        ...basePayload,
+        ...(!includeProgressColumns
+          ? {
+              goal_id: basePayload.goal_id,
+              user_id: basePayload.user_id,
+              check_in_at: basePayload.check_in_at,
+              note: basePayload.note,
+              proof_hash: basePayload.proof_hash,
+            }
+          : basePayload),
         ...(includeImagePathColumn && uploadedImagePath
           ? { image_path: uploadedImagePath }
           : {}),
@@ -717,6 +848,13 @@ export default function GoalPage() {
     let { error: insertError } = await insertCheckIn();
 
     while (insertError) {
+      if (includeProgressColumns && isMissingCheckInProgressColumnsError(insertError.message)) {
+        includeProgressColumns = false;
+        progressColumnsUnavailable = true;
+        ({ error: insertError } = await insertCheckIn());
+        continue;
+      }
+
       if (includeOnchainColumns && isMissingCheckInOnchainColumnsError(insertError.message)) {
         includeOnchainColumns = false;
         onchainColumnsUnavailable = true;
@@ -757,6 +895,10 @@ export default function GoalPage() {
           noteLength: normalizedNote?.length ?? 0,
           hasImage: Boolean(checkInImageFile),
           onchainAnchored,
+          progressValue: isActiveWeightSnapshotGoal ? 1 : parsedProgressValue,
+          progressSnapshotValue: isActiveWeightSnapshotGoal
+            ? parsedProgressValue
+            : null,
         },
       });
 
@@ -766,6 +908,9 @@ export default function GoalPage() {
     }
 
     setNote("");
+    setCheckInValueInput(
+      isActiveWeightSnapshotGoal ? "" : isActiveDurationGoal ? "30" : "1"
+    );
     clearCheckInImageSelection();
     const submitMessages = ["Check-in saved."];
 
@@ -779,6 +924,10 @@ export default function GoalPage() {
 
     if (onchainColumnsUnavailable) {
       submitMessages.push("Apply latest DB schema to persist on-chain check-in metadata.");
+    }
+
+    if (progressColumnsUnavailable) {
+      submitMessages.push("Apply latest DB schema to persist quantitative check-in progress.");
     }
 
     if (imageColumnUnavailable) {
@@ -983,6 +1132,13 @@ export default function GoalPage() {
       return;
     }
 
+    if (isSchemaTrackingGoal && editForm.modelType !== goal.model_type) {
+      setEditError(
+        "This goal uses the new tracking schema. Changing model type is not supported in this editor yet."
+      );
+      return;
+    }
+
     const requiresTarget = editForm.modelType !== "milestone";
     const targetValueNumber = requiresTarget
       ? Number(editForm.targetValue)
@@ -992,6 +1148,12 @@ export default function GoalPage() {
       setEditError("Goal value must be greater than 0.");
       return;
     }
+
+    const nextTargetUnit = requiresTarget
+      ? isSchemaTrackingGoal
+        ? goal.target_unit ?? null
+        : editForm.targetUnit.trim() || null
+      : null;
 
     const startISO =
       editForm.hasStartDate && editForm.startDate
@@ -1003,19 +1165,43 @@ export default function GoalPage() {
 
     setEditUpdating(true);
 
-    const { data, error: updateError } = await supabase
+    const legacyPayload = {
+      title: editForm.title.trim(),
+      start_at: startISO,
+      deadline_at: deadlineISO,
+      model_type: editForm.modelType,
+      target_value: targetValueNumber,
+      target_unit: nextTargetUnit,
+    };
+
+    const trackingPatch =
+      isSchemaTrackingGoal && requiresTarget
+        ? {
+            total_target_value: targetValueNumber,
+            ...(goal.cadence === "by_deadline"
+              ? { cadence_target_value: targetValueNumber }
+              : {}),
+          }
+        : {};
+
+    let { data, error: updateError } = await supabase
       .from("goals")
       .update({
-        title: editForm.title.trim(),
-        start_at: startISO,
-        deadline_at: deadlineISO,
-        model_type: editForm.modelType,
-        target_value: targetValueNumber,
-        target_unit: requiresTarget ? editForm.targetUnit.trim() || null : null,
+        ...legacyPayload,
+        ...trackingPatch,
       })
       .eq("id", goal.id)
       .select("*")
       .single();
+
+    if (updateError && isMissingGoalTrackingColumnsError(updateError.message)) {
+      ({ data, error: updateError } = await supabase
+        .from("goals")
+        .update(legacyPayload)
+        .eq("id", goal.id)
+        .select("*")
+        .single());
+    }
 
     if (updateError) {
       setEditError(updateError.message);
@@ -1100,12 +1286,17 @@ export default function GoalPage() {
                   />
                 </div>
                 <div className={styles.progressLabel}>
-                  {goal.target_value
-                    ? `${progressPercent}% of ${goal.target_value} ${
-                        goal.target_unit ?? "check-ins"
-                      }`
+                  {progressTargetValue
+                    ? `${progressPercent}% of ${progressTargetValue} ${goalUnitLabel}`
                     : "Target not set yet"}
                 </div>
+                {progressTargetValue && progressCurrentValue !== null ? (
+                  <div className={styles.helperText}>
+                    {isWeightSnapshotGoal
+                      ? `Latest snapshot: ${progressCurrentValue} ${goalUnitLabel}`
+                      : `Logged: ${progressCurrentValue} ${goalUnitLabel}`}
+                  </div>
+                ) : null}
               </div>
             </section>
 
@@ -1201,6 +1392,12 @@ export default function GoalPage() {
                   </div>
                 ) : (
                   <form className={styles.form} onSubmit={handleUpdateGoal}>
+                    {isSchemaTrackingGoal ? (
+                      <div className={styles.notice}>
+                        This goal uses the wizard tracking model. Model type and unit are locked in
+                        this editor.
+                      </div>
+                    ) : null}
                     <div className={styles.field}>
                       <label className={styles.label} htmlFor="edit-title">
                         Goal title
@@ -1283,6 +1480,7 @@ export default function GoalPage() {
                             id="edit-model"
                             className={styles.input}
                             value={editForm.modelType}
+                            disabled={isSchemaTrackingGoal}
                             onChange={(event) =>
                               setEditForm((current) => ({
                                 ...current,
@@ -1292,7 +1490,11 @@ export default function GoalPage() {
                           >
                             <option value="count">Count-based</option>
                             <option value="time">Time-based</option>
-                            <option value="milestone">Milestone-based</option>
+                            {editForm.modelType === "milestone" ? (
+                              <option value="milestone" disabled>
+                                Legacy milestone (read-only)
+                              </option>
+                            ) : null}
                           </select>
                         </div>
                       )}
@@ -1308,6 +1510,7 @@ export default function GoalPage() {
                             id="edit-model"
                             className={styles.input}
                             value={editForm.modelType}
+                            disabled={isSchemaTrackingGoal}
                             onChange={(event) =>
                               setEditForm((current) => ({
                                 ...current,
@@ -1317,7 +1520,11 @@ export default function GoalPage() {
                           >
                             <option value="count">Count-based</option>
                             <option value="time">Time-based</option>
-                            <option value="milestone">Milestone-based</option>
+                            {editForm.modelType === "milestone" ? (
+                              <option value="milestone" disabled>
+                                Legacy milestone (read-only)
+                              </option>
+                            ) : null}
                           </select>
                         </div>
                       </div>
@@ -1350,6 +1557,7 @@ export default function GoalPage() {
                           id="edit-target-unit"
                           className={styles.input}
                           value={editForm.targetUnit}
+                          disabled={isSchemaTrackingGoal}
                           onChange={(event) =>
                             setEditForm((current) => ({
                               ...current,
@@ -1456,6 +1664,57 @@ export default function GoalPage() {
               <div className={styles.sectionTitle}>Add check-in</div>
               <form className={styles.form} onSubmit={handleCheckIn}>
                 <div className={styles.field}>
+                  <label className={styles.label} htmlFor="checkin-value">
+                    {isWeightSnapshotGoal
+                      ? "Current progress snapshot"
+                      : isDurationGoal
+                        ? "Minutes logged"
+                        : `Quantity (${goalUnitLabel})`}
+                  </label>
+                  <input
+                    id="checkin-value"
+                    type="number"
+                    min={isWeightSnapshotGoal ? 0 : 1}
+                    step={1}
+                    className={styles.input}
+                    value={checkInValueInput}
+                    onChange={(event) => setCheckInValueInput(event.target.value)}
+                    placeholder={
+                      isWeightSnapshotGoal
+                        ? "e.g. 12"
+                        : isDurationGoal
+                          ? "e.g. 30"
+                          : "e.g. 1"
+                    }
+                    disabled={submittingCheckIn}
+                  />
+                  {isWeightSnapshotGoal ? (
+                    <div className={styles.helperText}>
+                      Enter total {goalUnitLabel.toLowerCase()} so far. Latest value drives goal
+                      progress.
+                    </div>
+                  ) : (
+                    <div className={styles.helperText}>
+                      Log the amount completed in this check-in.
+                    </div>
+                  )}
+                  {isDurationGoal && !isWeightSnapshotGoal ? (
+                    <div className={styles.buttonRow}>
+                      {[15, 30, 45, 60].map((minutes) => (
+                        <button
+                          key={minutes}
+                          type="button"
+                          className={styles.quickValueButton}
+                          onClick={() => setCheckInValueInput(String(minutes))}
+                          disabled={submittingCheckIn}
+                        >
+                          {minutes}m
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <div className={styles.field}>
                   <label className={styles.label} htmlFor="checkin-note">
                     Note (optional)
                   </label>
@@ -1537,6 +1796,18 @@ export default function GoalPage() {
                         {new Date(checkIn.check_in_at).toLocaleString()}
                       </div>
                       <div>{checkIn.note || "No note"}</div>
+                      {checkIn.progress_snapshot_value !== null ? (
+                        <div className={styles.listMeta}>
+                          Snapshot: {checkIn.progress_snapshot_value} {goalUnitLabel}
+                        </div>
+                      ) : (
+                        <div className={styles.listMeta}>
+                          Logged: {checkIn.progress_value}{" "}
+                          {checkIn.progress_unit === "minutes"
+                            ? "minutes"
+                            : goalUnitLabel}
+                        </div>
+                      )}
                       {checkIn.proof_hash ? (
                         <div className={styles.listMeta}>{checkIn.proof_hash}</div>
                       ) : null}

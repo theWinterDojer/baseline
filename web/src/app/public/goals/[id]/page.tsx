@@ -6,6 +6,8 @@ import { useParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { BASELINE_TAGLINE } from "@/lib/brand";
 import type { GoalModelType } from "@/lib/goalTypes";
+import { getPresetLabel } from "@/lib/goalPresets";
+import { isWeightSnapshotPreset } from "@/lib/goalTracking";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./publicGoal.module.css";
 
@@ -17,6 +19,10 @@ type Goal = {
   completed_at: string | null;
   deadline_at: string;
   model_type: GoalModelType;
+  goal_type: "count" | "duration" | null;
+  count_unit_preset: string | null;
+  total_target_value: number | null;
+  total_progress_value: number;
   target_value: number | null;
   target_unit: string | null;
   privacy: "private" | "public";
@@ -47,6 +53,7 @@ type SponsorPledge = {
   id: string;
   amount_cents: number;
   deadline_at: string;
+  min_check_ins: number | null;
   status: "offered" | "accepted" | "settled" | "expired" | "cancelled";
   accepted_at: string | null;
   approval_at: string | null;
@@ -83,13 +90,38 @@ export default function PublicGoalPage() {
   const [pledgeError, setPledgeError] = useState<string | null>(null);
   const [pledgeMessage, setPledgeMessage] = useState<string | null>(null);
   const [pledgeSubmitting, setPledgeSubmitting] = useState(false);
+  const [latestSnapshotProgressValue, setLatestSnapshotProgressValue] = useState<
+    number | null
+  >(null);
 
   const pledgePresets = [5, 10, 20, 50, 100];
 
+  const isDurationGoal =
+    goal?.goal_type === "duration" || goal?.model_type === "time";
+  const isWeightSnapshotGoal = isWeightSnapshotPreset(goal?.count_unit_preset);
+  const goalUnitLabel =
+    (goal?.count_unit_preset
+      ? getPresetLabel(goal.count_unit_preset)
+      : goal?.target_unit) ?? (isDurationGoal ? "minutes" : "units");
+  const minProgressUnitLabel = goalUnitLabel.toLowerCase();
+  const progressTargetValue = goal?.total_target_value ?? goal?.target_value ?? null;
+  const progressCurrentValue = useMemo(() => {
+    if (!goal) return null;
+    if (isWeightSnapshotGoal) {
+      if (latestSnapshotProgressValue !== null) return latestSnapshotProgressValue;
+      return goal.total_progress_value ?? 0;
+    }
+    if (typeof goal.total_progress_value === "number") {
+      return goal.total_progress_value;
+    }
+    return goal.check_in_count;
+  }, [goal, isWeightSnapshotGoal, latestSnapshotProgressValue]);
+
   const progressPercent = useMemo(() => {
-    if (!goal?.target_value || goal.target_value <= 0) return 0;
-    return Math.min(Math.round((goal.check_in_count / goal.target_value) * 100), 100);
-  }, [goal]);
+    if (!progressTargetValue || progressTargetValue <= 0) return 0;
+    if (progressCurrentValue === null || progressCurrentValue < 0) return 0;
+    return Math.min(Math.round((progressCurrentValue / progressTargetValue) * 100), 100);
+  }, [progressCurrentValue, progressTargetValue]);
 
   useEffect(() => {
     let mounted = true;
@@ -148,8 +180,26 @@ export default function PublicGoalPage() {
     }
 
     setGoal(data);
+    setLatestSnapshotProgressValue(null);
     setLoading(false);
     await loadComments(id);
+
+    if (isWeightSnapshotPreset(data.count_unit_preset)) {
+      const { data: snapshotRows, error: snapshotError } = await supabase
+        .from("check_ins")
+        .select("progress_snapshot_value,check_in_at")
+        .eq("goal_id", id)
+        .not("progress_snapshot_value", "is", null)
+        .order("check_in_at", { ascending: false })
+        .limit(1);
+
+      if (!snapshotError) {
+        const latestSnapshot = snapshotRows?.[0]?.progress_snapshot_value;
+        setLatestSnapshotProgressValue(
+          typeof latestSnapshot === "number" ? latestSnapshot : null
+        );
+      }
+    }
 
     const { data: nftData } = await supabase
       .from("completion_nfts")
@@ -164,7 +214,7 @@ export default function PublicGoalPage() {
     const { data, error: pledgeError } = await supabase
       .from("pledges")
       .select(
-        "id,amount_cents,deadline_at,status,accepted_at,approval_at,settled_at,created_at"
+        "id,amount_cents,deadline_at,min_check_ins,status,accepted_at,approval_at,settled_at,created_at"
       )
       .eq("goal_id", id)
       .eq("sponsor_id", userId)
@@ -322,7 +372,7 @@ export default function PublicGoalPage() {
     const minCheckInsValue = minCheckIns ? Number(minCheckIns) : null;
 
     if (minCheckInsValue !== null && (Number.isNaN(minCheckInsValue) || minCheckInsValue < 0)) {
-      setPledgeError("Minimum check-ins must be 0 or greater.");
+      setPledgeError("Minimum progress must be 0 or greater.");
       return;
     }
 
@@ -439,14 +489,16 @@ export default function PublicGoalPage() {
                   />
                 </div>
                 <div className={styles.progressLabel}>
-                  {goal.target_value
-                    ? `${progressPercent}% of ${goal.target_value} ${
-                        goal.target_unit ?? "check-ins"
-                      }`
+                  {progressTargetValue
+                    ? `${progressPercent}% of ${progressTargetValue} ${goalUnitLabel}`
                     : "Target not set yet"}
                 </div>
                 <div className={styles.progressMeta}>
-                  {goal.check_in_count} check-ins logged
+                  {progressCurrentValue !== null
+                    ? isWeightSnapshotGoal
+                      ? `Latest snapshot: ${progressCurrentValue} ${goalUnitLabel}`
+                      : `Logged: ${progressCurrentValue} ${goalUnitLabel}`
+                    : `${goal.check_in_count} check-ins logged`}
                 </div>
               </div>
             </section>
@@ -507,11 +559,11 @@ export default function PublicGoalPage() {
                       />
                     </div>
                     <div className={styles.field}>
-                      <label className={styles.label} htmlFor="pledge-min-checkins">
-                        Minimum check-ins
+                      <label className={styles.label} htmlFor="pledge-min-progress">
+                        Minimum progress ({minProgressUnitLabel})
                       </label>
                       <input
-                        id="pledge-min-checkins"
+                        id="pledge-min-progress"
                         type="number"
                         min="0"
                         step="1"
@@ -586,6 +638,11 @@ export default function PublicGoalPage() {
                           {goal?.completed_at && pledge.status === "accepted" ? (
                             <div className={styles.listMeta}>
                               Approval window is open for 7 days after completion.
+                            </div>
+                          ) : null}
+                          {pledge.min_check_ins !== null ? (
+                            <div className={styles.listMeta}>
+                              Minimum progress: {pledge.min_check_ins} {minProgressUnitLabel}
                             </div>
                           ) : null}
                           <div className={styles.buttonRow}>

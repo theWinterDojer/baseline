@@ -15,6 +15,14 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 do $$ begin
+  create type public.goal_tracking_type as enum ('count', 'duration');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type public.goal_cadence as enum ('daily', 'weekly', 'by_deadline');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
   create type public.pledge_status as enum ('offered', 'accepted', 'settled', 'expired', 'cancelled');
 exception when duplicate_object then null; end $$;
 
@@ -35,8 +43,7 @@ as $$
 declare
   has_pledges boolean;
   changed_privacy boolean;
-  changed_status boolean;
-  changed_check_in_count boolean;
+  changed_progress_rollups boolean;
   other_changes boolean;
 begin
   select exists (
@@ -44,8 +51,17 @@ begin
   ) into has_pledges;
 
   changed_privacy := new.privacy is distinct from old.privacy;
-  changed_status := new.status is distinct from old.status;
-  changed_check_in_count := new.check_in_count is distinct from old.check_in_count;
+  changed_progress_rollups := (
+    new.check_in_count is distinct from old.check_in_count
+    or new.total_progress_value is distinct from old.total_progress_value
+  );
+
+  if changed_progress_rollups
+    and pg_trigger_depth() = 0
+    and coalesce(current_setting('baseline.allow_rollup_write', true), 'off') <> 'on'
+  then
+    raise exception 'Goal progress rollups are managed by check-ins.';
+  end if;
 
   other_changes := (
     new.id is distinct from old.id
@@ -57,6 +73,12 @@ begin
     or new.model_type is distinct from old.model_type
     or new.target_value is distinct from old.target_value
     or new.target_unit is distinct from old.target_unit
+    or new.goal_type is distinct from old.goal_type
+    or new.cadence is distinct from old.cadence
+    or new.goal_category is distinct from old.goal_category
+    or new.count_unit_preset is distinct from old.count_unit_preset
+    or new.cadence_target_value is distinct from old.cadence_target_value
+    or new.total_target_value is distinct from old.total_target_value
     or new.milestones is distinct from old.milestones
     or new.tags is distinct from old.tags
   );
@@ -92,7 +114,9 @@ language plpgsql
 as $$
 begin
   update public.goals
-  set check_in_count = check_in_count + 1
+  set
+    check_in_count = check_in_count + 1,
+    total_progress_value = total_progress_value + greatest(coalesce(new.progress_value, 1), 0)
   where id = new.goal_id;
   return new;
 end;
@@ -104,9 +128,38 @@ language plpgsql
 as $$
 begin
   update public.goals
-  set check_in_count = greatest(check_in_count - 1, 0)
+  set
+    check_in_count = greatest(check_in_count - 1, 0),
+    total_progress_value = greatest(
+      total_progress_value - greatest(coalesce(old.progress_value, 1), 0),
+      0
+    )
   where id = old.goal_id;
   return old;
+end;
+$$;
+
+create or replace function public.adjust_goal_check_in_progress_value()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.goal_id is distinct from old.goal_id then
+    return new;
+  end if;
+
+  if new.progress_value is distinct from old.progress_value then
+    update public.goals
+    set total_progress_value = greatest(
+      total_progress_value
+      + greatest(coalesce(new.progress_value, 1), 0)
+      - greatest(coalesce(old.progress_value, 1), 0),
+      0
+    )
+    where id = new.goal_id;
+  end if;
+
+  return new;
 end;
 $$;
 
@@ -128,6 +181,13 @@ create table if not exists public.goals (
   completed_at timestamptz,
   deadline_at timestamptz not null,
   model_type public.goal_model_type not null default 'count',
+  goal_type public.goal_tracking_type,
+  cadence public.goal_cadence,
+  goal_category text,
+  count_unit_preset text,
+  cadence_target_value integer,
+  total_target_value integer,
+  total_progress_value integer not null default 0,
   target_value integer,
   target_unit text,
   milestones jsonb,
@@ -141,17 +201,145 @@ create table if not exists public.goals (
   tags text[] not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint goals_target_value_positive check (target_value is null or target_value > 0)
+  constraint goals_target_value_positive check (target_value is null or target_value > 0),
+  constraint goals_cadence_target_value_positive check (cadence_target_value is null or cadence_target_value > 0),
+  constraint goals_total_target_value_positive check (total_target_value is null or total_target_value > 0),
+  constraint goals_total_progress_value_nonnegative check (total_progress_value >= 0),
+  constraint goals_goal_type_matches_model_type check (
+    goal_type is null
+    or (goal_type = 'count' and model_type = 'count')
+    or (goal_type = 'duration' and model_type = 'time')
+  ),
+  constraint goals_tracking_fields_consistent check (
+    (
+      goal_type is null
+      and cadence is null
+      and goal_category is null
+      and count_unit_preset is null
+      and cadence_target_value is null
+      and total_target_value is null
+    )
+    or (
+      goal_type is not null
+      and cadence is not null
+      and cadence_target_value is not null
+      and total_target_value is not null
+      and (
+        (goal_type = 'count' and goal_category is not null and count_unit_preset is not null)
+        or (goal_type = 'duration' and goal_category is null and count_unit_preset is null)
+      )
+    )
+  )
 );
 
 alter table public.goals
   add column if not exists start_at timestamptz,
   add column if not exists completed_at timestamptz,
+  add column if not exists goal_type public.goal_tracking_type,
+  add column if not exists cadence public.goal_cadence,
+  add column if not exists goal_category text,
+  add column if not exists count_unit_preset text,
+  add column if not exists cadence_target_value integer,
+  add column if not exists total_target_value integer,
+  add column if not exists total_progress_value integer not null default 0,
   add column if not exists commitment_id text,
   add column if not exists commitment_tx_hash text,
   add column if not exists commitment_chain_id integer,
   add column if not exists commitment_created_at timestamptz,
   add column if not exists check_in_count integer not null default 0;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'goals_cadence_target_value_positive'
+      and conrelid = 'public.goals'::regclass
+  ) then
+    alter table public.goals
+      add constraint goals_cadence_target_value_positive
+      check (cadence_target_value is null or cadence_target_value > 0);
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'goals_goal_type_matches_model_type'
+      and conrelid = 'public.goals'::regclass
+  ) then
+    alter table public.goals
+      add constraint goals_goal_type_matches_model_type
+      check (
+        goal_type is null
+        or (goal_type = 'count' and model_type = 'count')
+        or (goal_type = 'duration' and model_type = 'time')
+      );
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'goals_tracking_fields_consistent'
+      and conrelid = 'public.goals'::regclass
+  ) then
+    alter table public.goals
+      add constraint goals_tracking_fields_consistent
+      check (
+        (
+          goal_type is null
+          and cadence is null
+          and goal_category is null
+          and count_unit_preset is null
+          and cadence_target_value is null
+          and total_target_value is null
+        )
+        or (
+          goal_type is not null
+          and cadence is not null
+          and cadence_target_value is not null
+          and total_target_value is not null
+          and (
+            (goal_type = 'count' and goal_category is not null and count_unit_preset is not null)
+            or (goal_type = 'duration' and goal_category is null and count_unit_preset is null)
+          )
+        )
+      );
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'goals_total_target_value_positive'
+      and conrelid = 'public.goals'::regclass
+  ) then
+    alter table public.goals
+      add constraint goals_total_target_value_positive
+      check (total_target_value is null or total_target_value > 0);
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'goals_total_progress_value_nonnegative'
+      and conrelid = 'public.goals'::regclass
+  ) then
+    alter table public.goals
+      add constraint goals_total_progress_value_nonnegative
+      check (total_progress_value >= 0);
+  end if;
+end
+$$;
 
 create table if not exists public.check_ins (
   id uuid primary key default gen_random_uuid(),
@@ -159,6 +347,9 @@ create table if not exists public.check_ins (
   user_id uuid not null references auth.users(id) on delete cascade,
   check_in_at timestamptz not null default now(),
   note text,
+  progress_value integer not null default 1,
+  progress_snapshot_value integer,
+  progress_unit text,
   proof_hash text,
   image_path text,
   onchain_commitment_id text,
@@ -169,11 +360,56 @@ create table if not exists public.check_ins (
 );
 
 alter table public.check_ins
+  add column if not exists progress_value integer not null default 1,
+  add column if not exists progress_snapshot_value integer,
+  add column if not exists progress_unit text,
   add column if not exists image_path text,
   add column if not exists onchain_commitment_id text,
   add column if not exists onchain_tx_hash text,
   add column if not exists onchain_chain_id integer,
   add column if not exists onchain_submitted_at timestamptz;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'check_ins_progress_value_positive'
+      and conrelid = 'public.check_ins'::regclass
+  ) then
+    alter table public.check_ins
+      add constraint check_ins_progress_value_positive
+      check (progress_value > 0);
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'check_ins_progress_snapshot_value_nonnegative'
+      and conrelid = 'public.check_ins'::regclass
+  ) then
+    alter table public.check_ins
+      add constraint check_ins_progress_snapshot_value_nonnegative
+      check (progress_snapshot_value is null or progress_snapshot_value >= 0);
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'check_ins_progress_unit_valid'
+      and conrelid = 'public.check_ins'::regclass
+  ) then
+    alter table public.check_ins
+      add constraint check_ins_progress_unit_valid
+      check (progress_unit is null or progress_unit in ('count', 'minutes'));
+  end if;
+end
+$$;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
@@ -322,7 +558,22 @@ create trigger check_ins_decrement_goal_count
 after delete on public.check_ins
 for each row execute function public.decrement_goal_check_in_count();
 
-update public.goals g
-set check_in_count = coalesce((
-  select count(*) from public.check_ins c where c.goal_id = g.id
-), 0);
+drop trigger if exists check_ins_adjust_goal_progress_value on public.check_ins;
+create trigger check_ins_adjust_goal_progress_value
+after update of progress_value on public.check_ins
+for each row execute function public.adjust_goal_check_in_progress_value();
+
+do $$
+begin
+  perform set_config('baseline.allow_rollup_write', 'on', true);
+
+  update public.goals g
+  set
+    check_in_count = coalesce((
+      select count(*) from public.check_ins c where c.goal_id = g.id
+    ), 0),
+    total_progress_value = coalesce((
+      select sum(greatest(c.progress_value, 0)) from public.check_ins c where c.goal_id = g.id
+    ), 0);
+end
+$$;

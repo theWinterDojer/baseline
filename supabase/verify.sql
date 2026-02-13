@@ -25,10 +25,20 @@ with required_columns(table_name, column_name) as (
   values
     ('goals', 'completed_at'),
     ('goals', 'check_in_count'),
+    ('goals', 'goal_type'),
+    ('goals', 'cadence'),
+    ('goals', 'goal_category'),
+    ('goals', 'count_unit_preset'),
+    ('goals', 'cadence_target_value'),
+    ('goals', 'total_target_value'),
+    ('goals', 'total_progress_value'),
     ('goals', 'commitment_id'),
     ('goals', 'commitment_tx_hash'),
     ('goals', 'commitment_chain_id'),
     ('goals', 'commitment_created_at'),
+    ('check_ins', 'progress_value'),
+    ('check_ins', 'progress_snapshot_value'),
+    ('check_ins', 'progress_unit'),
     ('check_ins', 'proof_hash'),
     ('check_ins', 'image_path'),
     ('check_ins', 'onchain_commitment_id'),
@@ -80,7 +90,8 @@ with required_triggers(table_name, trigger_name) as (
     ('goals', 'enforce_goals_update_policy'),
     ('pledges', 'set_pledges_updated_at'),
     ('check_ins', 'check_ins_increment_goal_count'),
-    ('check_ins', 'check_ins_decrement_goal_count')
+    ('check_ins', 'check_ins_decrement_goal_count'),
+    ('check_ins', 'check_ins_adjust_goal_progress_value')
 )
 select
   rt.table_name,
