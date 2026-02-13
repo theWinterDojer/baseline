@@ -7,7 +7,10 @@ import type { Session } from "@supabase/supabase-js";
 import { BASELINE_TAGLINE } from "@/lib/brand";
 import type { GoalModelType } from "@/lib/goalTypes";
 import { getPresetLabel } from "@/lib/goalPresets";
-import { isWeightSnapshotPreset } from "@/lib/goalTracking";
+import {
+  calculateSnapshotProgressPercent,
+  isWeightSnapshotPreset,
+} from "@/lib/goalTracking";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./publicGoal.module.css";
 
@@ -21,6 +24,8 @@ type Goal = {
   model_type: GoalModelType;
   goal_type: "count" | "duration" | null;
   count_unit_preset: string | null;
+  cadence_target_value: number | null;
+  start_snapshot_value: number | null;
   total_target_value: number | null;
   total_progress_value: number;
   target_value: number | null;
@@ -61,6 +66,12 @@ type SponsorPledge = {
   created_at: string;
 };
 
+const formatMetricValue = (value: number) => {
+  const rounded = Math.round(value * 100) / 100;
+  if (Number.isInteger(rounded)) return String(rounded);
+  return rounded.toFixed(2).replace(/\.?0+$/, "");
+};
+
 export default function PublicGoalPage() {
   const params = useParams<{ id: string }>();
   const goalId = params?.id;
@@ -93,6 +104,9 @@ export default function PublicGoalPage() {
   const [latestSnapshotProgressValue, setLatestSnapshotProgressValue] = useState<
     number | null
   >(null);
+  const [startSnapshotProgressValue, setStartSnapshotProgressValue] = useState<
+    number | null
+  >(null);
 
   const pledgePresets = [5, 10, 20, 50, 100];
 
@@ -100,16 +114,21 @@ export default function PublicGoalPage() {
     goal?.goal_type === "duration" || goal?.model_type === "time";
   const isWeightSnapshotGoal = isWeightSnapshotPreset(goal?.count_unit_preset);
   const goalUnitLabel =
-    (goal?.count_unit_preset
+    (isWeightSnapshotGoal
+      ? "weight"
+      : goal?.count_unit_preset
       ? getPresetLabel(goal.count_unit_preset)
       : goal?.target_unit) ?? (isDurationGoal ? "minutes" : "units");
   const minProgressUnitLabel = goalUnitLabel.toLowerCase();
-  const progressTargetValue = goal?.total_target_value ?? goal?.target_value ?? null;
+  const progressTargetValue = isWeightSnapshotGoal
+    ? goal?.cadence_target_value ?? goal?.target_value ?? goal?.total_target_value ?? null
+    : goal?.total_target_value ?? goal?.target_value ?? null;
   const progressCurrentValue = useMemo(() => {
     if (!goal) return null;
     if (isWeightSnapshotGoal) {
       if (latestSnapshotProgressValue !== null) return latestSnapshotProgressValue;
-      return goal.total_progress_value ?? 0;
+      if (goal.start_snapshot_value !== null) return goal.start_snapshot_value;
+      return null;
     }
     if (typeof goal.total_progress_value === "number") {
       return goal.total_progress_value;
@@ -118,10 +137,22 @@ export default function PublicGoalPage() {
   }, [goal, isWeightSnapshotGoal, latestSnapshotProgressValue]);
 
   const progressPercent = useMemo(() => {
+    if (isWeightSnapshotGoal) {
+      return calculateSnapshotProgressPercent({
+        startValue: startSnapshotProgressValue,
+        currentValue: progressCurrentValue,
+        targetValue: progressTargetValue,
+      });
+    }
     if (!progressTargetValue || progressTargetValue <= 0) return 0;
     if (progressCurrentValue === null || progressCurrentValue < 0) return 0;
     return Math.min(Math.round((progressCurrentValue / progressTargetValue) * 100), 100);
-  }, [progressCurrentValue, progressTargetValue]);
+  }, [
+    isWeightSnapshotGoal,
+    progressCurrentValue,
+    progressTargetValue,
+    startSnapshotProgressValue,
+  ]);
 
   useEffect(() => {
     let mounted = true;
@@ -181,23 +212,42 @@ export default function PublicGoalPage() {
 
     setGoal(data);
     setLatestSnapshotProgressValue(null);
+    setStartSnapshotProgressValue(
+      typeof data.start_snapshot_value === "number" ? data.start_snapshot_value : null
+    );
     setLoading(false);
     await loadComments(id);
 
     if (isWeightSnapshotPreset(data.count_unit_preset)) {
-      const { data: snapshotRows, error: snapshotError } = await supabase
-        .from("check_ins")
-        .select("progress_snapshot_value,check_in_at")
-        .eq("goal_id", id)
-        .not("progress_snapshot_value", "is", null)
-        .order("check_in_at", { ascending: false })
-        .limit(1);
+      const [latestSnapshotResult, startSnapshotResult] = await Promise.all([
+        supabase
+          .from("check_ins")
+          .select("progress_snapshot_value,check_in_at")
+          .eq("goal_id", id)
+          .not("progress_snapshot_value", "is", null)
+          .order("check_in_at", { ascending: false })
+          .limit(1),
+        supabase
+          .from("check_ins")
+          .select("progress_snapshot_value,check_in_at")
+          .eq("goal_id", id)
+          .not("progress_snapshot_value", "is", null)
+          .order("check_in_at", { ascending: true })
+          .limit(1),
+      ]);
 
-      if (!snapshotError) {
-        const latestSnapshot = snapshotRows?.[0]?.progress_snapshot_value;
+      if (!latestSnapshotResult.error) {
+        const latestSnapshot = latestSnapshotResult.data?.[0]?.progress_snapshot_value;
         setLatestSnapshotProgressValue(
           typeof latestSnapshot === "number" ? latestSnapshot : null
         );
+      }
+      if (
+        !startSnapshotResult.error &&
+        typeof data.start_snapshot_value !== "number"
+      ) {
+        const startSnapshot = startSnapshotResult.data?.[0]?.progress_snapshot_value;
+        setStartSnapshotProgressValue(typeof startSnapshot === "number" ? startSnapshot : null);
       }
     }
 
@@ -490,13 +540,19 @@ export default function PublicGoalPage() {
                 </div>
                 <div className={styles.progressLabel}>
                   {progressTargetValue
-                    ? `${progressPercent}% of ${progressTargetValue} ${goalUnitLabel}`
+                    ? isWeightSnapshotGoal
+                      ? `${progressPercent}% to goal weight ${formatMetricValue(progressTargetValue)}`
+                      : `${progressPercent}% of ${progressTargetValue} ${goalUnitLabel}`
                     : "Target not set yet"}
                 </div>
                 <div className={styles.progressMeta}>
                   {progressCurrentValue !== null
                     ? isWeightSnapshotGoal
-                      ? `Latest snapshot: ${progressCurrentValue} ${goalUnitLabel}`
+                      ? `Current weight: ${formatMetricValue(progressCurrentValue)}${
+                          startSnapshotProgressValue !== null
+                            ? ` (started ${formatMetricValue(startSnapshotProgressValue)})`
+                            : ""
+                        }`
                       : `Logged: ${progressCurrentValue} ${goalUnitLabel}`
                     : `${goal.check_in_count} check-ins logged`}
                 </div>

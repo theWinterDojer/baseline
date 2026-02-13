@@ -21,7 +21,7 @@ export const GOAL_PRESET_CATEGORIES: GoalPresetCategory[] = [
       { key: "mobility_sessions", label: "Mobility / stretching" },
       { key: "sleep_hours", label: "Sleep" },
       { key: "rest_days", label: "Rest days" },
-      { key: "bodyweight_logged", label: "Weigh-ins" },
+      { key: "bodyweight_logged", label: "Body weight" },
     ],
   },
   {

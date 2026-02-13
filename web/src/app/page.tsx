@@ -24,6 +24,7 @@ import {
 import {
   type GoalCadence,
   isMissingGoalTrackingColumnsError,
+  isWeightSnapshotPreset,
   toLegacyCompatibleGoalTrackingFields,
 } from "@/lib/goalTracking";
 import styles from "./page.module.css";
@@ -106,6 +107,16 @@ const parseStrictPositiveInteger = (value: string): number | null => {
   return numberValue;
 };
 
+const parseStrictPositiveDecimal = (value: string): number | null => {
+  const trimmed = value.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
+  const numberValue = Number(trimmed);
+  if (!Number.isFinite(numberValue) || numberValue <= 0) {
+    return null;
+  }
+  return numberValue;
+};
+
 const daysInclusive = (startDate: string, deadlineDate: string): number | null => {
   if (!startDate || !deadlineDate) return null;
   const [startY, startM, startD] = startDate.split("-").map(Number);
@@ -126,7 +137,8 @@ const staggerStyle = (index: number) => ({
 });
 
 const UNIT_GUIDANCE_BY_PRESET_KEY: Record<string, string> = {
-  bodyweight_logged: "Log each weigh-in. Your latest value is used for progress.",
+  bodyweight_logged:
+    "Log your current weight at each check-in. Progress compares your latest weight to your goal weight.",
   reduction_days: "Use this for \"no X\" goals. Log 1 for each successful day.",
   distance: "Log distance completed on each check-in.",
   activity_minutes: "Log active minutes completed each time.",
@@ -156,6 +168,7 @@ export default function Home() {
     categoryKey: "",
     presetKey: "",
     cadence: "by_deadline" as GoalCadence,
+    startSnapshotValue: "",
     cadenceTargetValue: "",
     startDate: defaultStartDate,
     deadline: "",
@@ -196,6 +209,8 @@ export default function Home() {
       ) ?? null,
     [goalForm.presetKey, selectedCategory]
   );
+  const isSnapshotPresetSelected =
+    goalForm.modelType === "count" && isWeightSnapshotPreset(goalForm.presetKey);
 
   useEffect(() => {
     if (goalForm.modelType !== "count") return;
@@ -216,9 +231,25 @@ export default function Home() {
     }));
   }, [goalForm.modelType, goalForm.presetKey, selectedCategory]);
 
+  useEffect(() => {
+    if (!isSnapshotPresetSelected) return;
+    if (goalForm.cadence === "by_deadline") return;
+    setGoalForm((current) => ({
+      ...current,
+      cadence: "by_deadline",
+    }));
+  }, [goalForm.cadence, isSnapshotPresetSelected]);
+
   const cadenceTargetNumber = useMemo(
     () => parseStrictPositiveInteger(goalForm.cadenceTargetValue),
     [goalForm.cadenceTargetValue]
+  );
+  const snapshotStartWeight = useMemo(
+    () =>
+      isSnapshotPresetSelected
+        ? parseStrictPositiveDecimal(goalForm.startSnapshotValue)
+        : null,
+    [goalForm.startSnapshotValue, isSnapshotPresetSelected]
   );
   const cadenceTargetStorageValue = useMemo(() => {
     if (!cadenceTargetNumber) return null;
@@ -251,11 +282,18 @@ export default function Home() {
   const goalUnitLabel =
     goalForm.modelType === "time"
       ? durationUnitLabel
-      : (selectedPreset?.label.toLowerCase() ?? "units");
+      : isSnapshotPresetSelected
+        ? "weight"
+        : (selectedPreset?.label.toLowerCase() ?? "units");
 
   const goalSummary = useMemo(() => {
     const title = goalForm.title.trim();
-    if (!title || !cadenceTargetNumber || !totalTargetValue) return null;
+    if (!title) return null;
+    if (isSnapshotPresetSelected) {
+      if (!cadenceTargetNumber || snapshotStartWeight === null) return null;
+      return `${title}: start at ${snapshotStartWeight} and reach goal weight ${cadenceTargetNumber} by ${goalForm.deadline}.`;
+    }
+    if (!cadenceTargetNumber || !totalTargetValue) return null;
     if (goalForm.modelType === "time") {
       if (goalForm.cadence === "daily") {
         return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} per day from ${goalForm.startDate} to ${goalForm.deadline} (${totalTargetValue} minutes total).`;
@@ -279,7 +317,9 @@ export default function Home() {
     goalForm.modelType,
     goalForm.startDate,
     goalForm.title,
+    isSnapshotPresetSelected,
     goalUnitLabel,
+    snapshotStartWeight,
     totalTargetValue,
   ]);
 
@@ -307,6 +347,8 @@ export default function Home() {
 
     if (!cadenceTargetStorageValue) {
       errors[2] = "Target must be a whole number greater than 0.";
+    } else if (isSnapshotPresetSelected && snapshotStartWeight === null) {
+      errors[2] = "Current weight must be a number greater than 0.";
     } else if (
       goalForm.modelType === "time" &&
       goalForm.cadence !== "by_deadline" &&
@@ -336,7 +378,9 @@ export default function Home() {
     goalForm.presetKey,
     goalForm.startDate,
     goalForm.title,
+    isSnapshotPresetSelected,
     goalSummary,
+    snapshotStartWeight,
   ]);
 
   const measurementStepError = useMemo(() => {
@@ -629,6 +673,11 @@ export default function Home() {
       return;
     }
 
+    if (isSnapshotPresetSelected && snapshotStartWeight === null) {
+      setGoalError("Current weight must be a number greater than 0.");
+      return;
+    }
+
     const cadenceTargetValue =
       goalForm.modelType === "time" && durationInputUnit === "hours"
         ? cadenceTargetInputValue * 60
@@ -668,10 +717,14 @@ export default function Home() {
       return;
     }
 
-    const targetValueNumber = totalTargetValue;
+    const targetValueNumber = isSnapshotPresetSelected
+      ? cadenceTargetInputValue
+      : totalTargetValue;
     const targetUnitValue =
       goalForm.modelType === "time"
         ? "minutes"
+        : isSnapshotPresetSelected
+          ? "weight"
         : getPresetLabel(goalForm.presetKey)?.toLowerCase() ?? "units";
 
     const startISO = new Date(`${goalForm.startDate}T00:00:00`).toISOString();
@@ -700,14 +753,33 @@ export default function Home() {
       totalTargetValue: targetValueNumber,
     });
 
+    const goalInsertPayload = {
+      ...legacyPayload,
+      ...trackingFields,
+      ...(isSnapshotPresetSelected && snapshotStartWeight !== null
+        ? { start_snapshot_value: snapshotStartWeight }
+        : {}),
+    };
+
     let { data: goalData, error } = await supabase
       .from("goals")
-      .insert({
-        ...legacyPayload,
-        ...trackingFields,
-      })
+      .insert(goalInsertPayload)
       .select("id")
       .single();
+
+    if (
+      error &&
+      error.message.toLowerCase().includes("start_snapshot_value")
+    ) {
+      ({ data: goalData, error } = await supabase
+        .from("goals")
+        .insert({
+          ...legacyPayload,
+          ...trackingFields,
+        })
+        .select("id")
+        .single());
+    }
 
     if (error && isMissingGoalTrackingColumnsError(error.message)) {
       ({ data: goalData, error } = await supabase
@@ -742,16 +814,17 @@ export default function Home() {
       }
     }
 
-    setGoalForm({
-      title: "",
-      modelType: "count",
-      categoryKey: "",
-      presetKey: "",
-      cadence: "by_deadline",
-      cadenceTargetValue: "",
-      startDate: defaultStartDate,
-      deadline: "",
-    });
+      setGoalForm({
+        title: "",
+        modelType: "count",
+        categoryKey: "",
+        presetKey: "",
+        cadence: "by_deadline",
+        startSnapshotValue: "",
+        cadenceTargetValue: "",
+        startDate: defaultStartDate,
+        deadline: "",
+      });
     setDurationInputUnit("minutes");
     setMeasurementLevel("type");
     setWizardMotionDirection("forward");
@@ -903,7 +976,7 @@ export default function Home() {
                               >
                                 <span className={styles.optionTitle}>Track amount</span>
                                 <span className={styles.optionBody}>
-                                  Log how much you do, like pages, workouts, or savings.
+                                  Log how much you do, like miles ran, pounds lost, books read.
                                 </span>
                               </button>
                               <button
@@ -990,30 +1063,40 @@ export default function Home() {
                             tabIndex={-1}
                             className={styles.wizardHeading}
                           >
-                            How often should this happen?
+                            {isSnapshotPresetSelected
+                              ? "What is your goal weight?"
+                              : "How often should this happen?"}
                           </h3>
                           <p className={styles.wizardSubheading}>
-                            Choose cadence, then define the target for that cadence.
+                            {isSnapshotPresetSelected
+                              ? "Set your current weight and your goal weight."
+                              : "Choose cadence, then define the target for that cadence."}
                           </p>
-                          <div className={styles.optionGrid}>
-                            {CADENCE_OPTIONS.map((option, index) => (
-                              <button
-                                key={option.value}
-                                type="button"
-                                className={`${styles.optionCard} ${styles.staggerReveal} ${goalForm.cadence === option.value ? styles.optionCardSelected : ""}`}
-                                style={staggerStyle(index)}
-                                onClick={() =>
-                                  setGoalForm((current) => ({
-                                    ...current,
-                                    cadence: option.value,
-                                  }))
-                                }
-                              >
-                                <span className={styles.optionTitle}>{option.title}</span>
-                                <span className={styles.optionBody}>{option.description}</span>
-                              </button>
-                            ))}
-                          </div>
+                          {!isSnapshotPresetSelected ? (
+                            <div className={styles.optionGrid}>
+                              {CADENCE_OPTIONS.map((option, index) => (
+                                <button
+                                  key={option.value}
+                                  type="button"
+                                  className={`${styles.optionCard} ${styles.staggerReveal} ${goalForm.cadence === option.value ? styles.optionCardSelected : ""}`}
+                                  style={staggerStyle(index)}
+                                  onClick={() =>
+                                    setGoalForm((current) => ({
+                                      ...current,
+                                      cadence: option.value,
+                                    }))
+                                  }
+                                >
+                                  <span className={styles.optionTitle}>{option.title}</span>
+                                  <span className={styles.optionBody}>{option.description}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className={styles.inlineNote}>
+                              Goal weight uses a single target by your deadline.
+                            </div>
+                          )}
 
                           {goalForm.modelType === "time" ? (
                             <div className={styles.durationInlineRow}>
@@ -1067,30 +1150,83 @@ export default function Home() {
                               </div>
                             </div>
                           ) : (
-                            <div className={styles.field}>
-                              <label className={styles.label} htmlFor="goal-cadence-target">
-                                {goalForm.cadence === "daily"
-                                  ? "Target per day"
-                                  : goalForm.cadence === "weekly"
-                                    ? "Target per week"
-                                    : "Total target"}
-                              </label>
-                              <input
-                                id="goal-cadence-target"
-                                type="number"
-                                min={1}
-                                step={1}
-                                className={styles.input}
-                                value={goalForm.cadenceTargetValue}
-                                onChange={(event) =>
-                                  setGoalForm((current) => ({
-                                    ...current,
-                                    cadenceTargetValue: event.target.value,
-                                  }))
-                                }
-                                placeholder="e.g. 60"
-                              />
-                            </div>
+                            <>
+                              {isSnapshotPresetSelected ? (
+                                <div className={styles.row}>
+                                  <div className={styles.field}>
+                                    <label className={styles.label} htmlFor="goal-current-weight">
+                                      Current weight
+                                    </label>
+                                    <input
+                                      id="goal-current-weight"
+                                      type="number"
+                                      min={1}
+                                      step={0.1}
+                                      className={styles.input}
+                                      value={goalForm.startSnapshotValue}
+                                      onChange={(event) =>
+                                        setGoalForm((current) => ({
+                                          ...current,
+                                          startSnapshotValue: event.target.value,
+                                        }))
+                                      }
+                                      placeholder="e.g. 192.6"
+                                    />
+                                  </div>
+                                  <div className={styles.field}>
+                                    <label className={styles.label} htmlFor="goal-cadence-target">
+                                      Goal weight
+                                    </label>
+                                    <input
+                                      id="goal-cadence-target"
+                                      type="number"
+                                      min={1}
+                                      step={1}
+                                      className={styles.input}
+                                      value={goalForm.cadenceTargetValue}
+                                      onChange={(event) =>
+                                        setGoalForm((current) => ({
+                                          ...current,
+                                          cadenceTargetValue: event.target.value,
+                                        }))
+                                      }
+                                      placeholder="e.g. 180"
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className={styles.field}>
+                                  <label className={styles.label} htmlFor="goal-cadence-target">
+                                    {goalForm.cadence === "daily"
+                                      ? "Target per day"
+                                      : goalForm.cadence === "weekly"
+                                        ? "Target per week"
+                                        : "Total target"}
+                                  </label>
+                                  <input
+                                    id="goal-cadence-target"
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    className={styles.input}
+                                    value={goalForm.cadenceTargetValue}
+                                    onChange={(event) =>
+                                      setGoalForm((current) => ({
+                                        ...current,
+                                        cadenceTargetValue: event.target.value,
+                                      }))
+                                    }
+                                    placeholder="e.g. 60"
+                                  />
+                                </div>
+                              )}
+                              {isSnapshotPresetSelected ? (
+                                <div className={styles.helper}>
+                                  You will log current weight in check-ins. Progress compares
+                                  current vs goal from this starting weight.
+                                </div>
+                              ) : null}
+                            </>
                           )}
                         </>
                       ) : null}
@@ -1185,14 +1321,24 @@ export default function Home() {
                                 <span>{selectedPreset?.label ?? "-"}</span>
                               </div>
                             ) : null}
+                            {isSnapshotPresetSelected ? (
+                              <div className={styles.reviewRow}>
+                                <span className={styles.reviewLabel}>Current weight</span>
+                                <span>{snapshotStartWeight ?? "-"}</span>
+                              </div>
+                            ) : null}
                             <div className={styles.reviewRow}>
                               <span className={styles.reviewLabel}>Cadence</span>
                               <span>{goalForm.cadence.replace("_", " ")}</span>
                             </div>
                             <div className={styles.reviewRow}>
-                              <span className={styles.reviewLabel}>Total target</span>
+                              <span className={styles.reviewLabel}>
+                                {isSnapshotPresetSelected ? "Goal weight" : "Total target"}
+                              </span>
                               <span>
-                                {goalForm.modelType === "time"
+                                {isSnapshotPresetSelected
+                                  ? `${cadenceTargetNumber ?? "-"}`
+                                  : goalForm.modelType === "time"
                                   ? `${totalTargetValue ?? "-"} minutes`
                                   : `${totalTargetValue ?? "-"} ${goalUnitLabel}`}
                               </span>
@@ -1200,6 +1346,12 @@ export default function Home() {
                             <div className={styles.reviewSummary}>
                               {goalSummary ?? "Complete previous steps to generate summary."}
                             </div>
+                            {isSnapshotPresetSelected ? (
+                              <div className={styles.inlineNote}>
+                                You will log your current weight each check-in. Progress uses your
+                                latest weight compared with your goal weight.
+                              </div>
+                            ) : null}
                           </div>
                         </>
                       ) : null}

@@ -30,6 +30,7 @@ with required_columns(table_name, column_name) as (
     ('goals', 'goal_category'),
     ('goals', 'count_unit_preset'),
     ('goals', 'cadence_target_value'),
+    ('goals', 'start_snapshot_value'),
     ('goals', 'total_target_value'),
     ('goals', 'total_progress_value'),
     ('goals', 'commitment_id'),
@@ -62,6 +63,25 @@ select
   ) as is_present
 from required_columns rc
 order by rc.table_name, rc.column_name;
+
+-- 2b) Required column types for weight snapshot support
+with required_column_types(table_name, column_name, expected_data_type) as (
+  values
+    ('goals', 'start_snapshot_value', 'double precision'),
+    ('check_ins', 'progress_snapshot_value', 'double precision')
+)
+select
+  rct.table_name,
+  rct.column_name,
+  rct.expected_data_type,
+  c.data_type as actual_data_type,
+  c.data_type = rct.expected_data_type as type_matches
+from required_column_types rct
+left join information_schema.columns c
+  on c.table_schema = 'public'
+ and c.table_name = rct.table_name
+ and c.column_name = rct.column_name
+order by rct.table_name, rct.column_name;
 
 -- 3) RLS enabled on core tables
 select

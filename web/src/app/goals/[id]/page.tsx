@@ -25,6 +25,7 @@ import {
 } from "@/lib/contracts";
 import type { GoalModelType } from "@/lib/goalTypes";
 import {
+  calculateSnapshotProgressPercent,
   isMissingGoalTrackingColumnsError,
   isWeightSnapshotPreset,
 } from "@/lib/goalTracking";
@@ -45,6 +46,7 @@ type Goal = {
   goal_category: string | null;
   count_unit_preset: string | null;
   cadence_target_value: number | null;
+  start_snapshot_value: number | null;
   total_target_value: number | null;
   total_progress_value: number;
   target_value: number | null;
@@ -169,12 +171,18 @@ const parsePositiveInteger = (value: string): number | null => {
   return parsed;
 };
 
-const parseNonNegativeInteger = (value: string): number | null => {
+const parseNonNegativeDecimal = (value: string): number | null => {
   const normalized = value.trim();
-  if (!/^\d+$/.test(normalized)) return null;
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return null;
   const parsed = Number(normalized);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) return null;
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
   return parsed;
+};
+
+const formatMetricValue = (value: number) => {
+  const rounded = Math.round(value * 100) / 100;
+  if (Number.isInteger(rounded)) return String(rounded);
+  return rounded.toFixed(2).replace(/\.?0+$/, "");
 };
 
 const toEditForm = (nextGoal: Goal) => ({
@@ -247,10 +255,14 @@ export default function GoalPage() {
     goal?.goal_type === "duration" || goal?.model_type === "time";
   const isWeightSnapshotGoal = isWeightSnapshotPreset(goal?.count_unit_preset);
   const goalUnitLabel =
-    (goal?.count_unit_preset
+    (isWeightSnapshotGoal
+      ? "weight"
+      : goal?.count_unit_preset
       ? getPresetLabel(goal.count_unit_preset)
       : goal?.target_unit) ?? (isDurationGoal ? "minutes" : "units");
-  const progressTargetValue = goal?.total_target_value ?? goal?.target_value ?? null;
+  const progressTargetValue = isWeightSnapshotGoal
+    ? goal?.cadence_target_value ?? goal?.target_value ?? goal?.total_target_value ?? null
+    : goal?.total_target_value ?? goal?.target_value ?? null;
   const isSchemaTrackingGoal =
     goal?.goal_type !== null ||
     goal?.cadence !== null ||
@@ -259,13 +271,33 @@ export default function GoalPage() {
     goal?.cadence_target_value !== null ||
     goal?.total_target_value !== null;
 
-  const latestSnapshotProgressValue = useMemo(() => {
+  const snapshotProgressRange = useMemo(() => {
     if (!isWeightSnapshotGoal) return null;
-    const latestWithSnapshot = checkIns.find(
-      (checkIn) => checkIn.progress_snapshot_value !== null
-    );
-    return latestWithSnapshot?.progress_snapshot_value ?? null;
+    let earliest: { value: number; time: number } | null = null;
+    let latest: { value: number; time: number } | null = null;
+
+    for (const checkIn of checkIns) {
+      if (checkIn.progress_snapshot_value === null) continue;
+      const timestamp = new Date(checkIn.check_in_at).getTime();
+      if (Number.isNaN(timestamp)) continue;
+
+      if (!earliest || timestamp < earliest.time) {
+        earliest = { value: checkIn.progress_snapshot_value, time: timestamp };
+      }
+      if (!latest || timestamp > latest.time) {
+        latest = { value: checkIn.progress_snapshot_value, time: timestamp };
+      }
+    }
+
+    return {
+      startValue: earliest?.value ?? null,
+      latestValue: latest?.value ?? null,
+    };
   }, [checkIns, isWeightSnapshotGoal]);
+
+  const latestSnapshotProgressValue = snapshotProgressRange?.latestValue ?? null;
+  const startSnapshotProgressValue =
+    goal?.start_snapshot_value ?? snapshotProgressRange?.startValue ?? null;
 
   const progressCurrentValue = useMemo(() => {
     if (!goal) return null;
@@ -273,7 +305,10 @@ export default function GoalPage() {
       if (latestSnapshotProgressValue !== null) {
         return latestSnapshotProgressValue;
       }
-      return goal.total_progress_value ?? 0;
+      if (goal.start_snapshot_value !== null) {
+        return goal.start_snapshot_value;
+      }
+      return null;
     }
 
     if (typeof goal.total_progress_value === "number") {
@@ -284,10 +319,22 @@ export default function GoalPage() {
   }, [checkIns.length, goal, isWeightSnapshotGoal, latestSnapshotProgressValue]);
 
   const progressPercent = useMemo(() => {
+    if (isWeightSnapshotGoal) {
+      return calculateSnapshotProgressPercent({
+        startValue: startSnapshotProgressValue,
+        currentValue: progressCurrentValue,
+        targetValue: progressTargetValue,
+      });
+    }
     if (!progressTargetValue || progressTargetValue <= 0) return 0;
     if (progressCurrentValue === null || progressCurrentValue < 0) return 0;
     return Math.min(Math.round((progressCurrentValue / progressTargetValue) * 100), 100);
-  }, [progressCurrentValue, progressTargetValue]);
+  }, [
+    isWeightSnapshotGoal,
+    progressCurrentValue,
+    progressTargetValue,
+    startSnapshotProgressValue,
+  ]);
 
   const isOwner = Boolean(session?.user?.id && goal?.user_id === session.user.id);
 
@@ -634,13 +681,13 @@ export default function GoalPage() {
       activeGoal.count_unit_preset
     );
     const parsedProgressValue = isActiveWeightSnapshotGoal
-      ? parseNonNegativeInteger(checkInValueInput)
+      ? parseNonNegativeDecimal(checkInValueInput)
       : parsePositiveInteger(checkInValueInput);
 
     if (parsedProgressValue === null) {
       setSubmitError(
         isActiveWeightSnapshotGoal
-          ? "Enter a whole number 0 or greater for this snapshot check-in."
+          ? "Enter your current weight (0 or greater, up to 2 decimals)."
           : "Enter a whole number greater than 0 for this check-in."
       );
       setSubmittingCheckIn(false);
@@ -1287,13 +1334,19 @@ export default function GoalPage() {
                 </div>
                 <div className={styles.progressLabel}>
                   {progressTargetValue
-                    ? `${progressPercent}% of ${progressTargetValue} ${goalUnitLabel}`
+                    ? isWeightSnapshotGoal
+                      ? `${progressPercent}% to goal weight ${formatMetricValue(progressTargetValue)}`
+                      : `${progressPercent}% of ${progressTargetValue} ${goalUnitLabel}`
                     : "Target not set yet"}
                 </div>
                 {progressTargetValue && progressCurrentValue !== null ? (
                   <div className={styles.helperText}>
                     {isWeightSnapshotGoal
-                      ? `Latest snapshot: ${progressCurrentValue} ${goalUnitLabel}`
+                      ? `Current weight: ${formatMetricValue(progressCurrentValue)}${
+                          startSnapshotProgressValue !== null
+                            ? ` (started ${formatMetricValue(startSnapshotProgressValue)})`
+                            : ""
+                        }`
                       : `Logged: ${progressCurrentValue} ${goalUnitLabel}`}
                   </div>
                 ) : null}
@@ -1666,7 +1719,7 @@ export default function GoalPage() {
                 <div className={styles.field}>
                   <label className={styles.label} htmlFor="checkin-value">
                     {isWeightSnapshotGoal
-                      ? "Current progress snapshot"
+                      ? "Current weight"
                       : isDurationGoal
                         ? "Minutes logged"
                         : `Quantity (${goalUnitLabel})`}
@@ -1675,13 +1728,13 @@ export default function GoalPage() {
                     id="checkin-value"
                     type="number"
                     min={isWeightSnapshotGoal ? 0 : 1}
-                    step={1}
+                    step={isWeightSnapshotGoal ? 0.1 : 1}
                     className={styles.input}
                     value={checkInValueInput}
                     onChange={(event) => setCheckInValueInput(event.target.value)}
                     placeholder={
                       isWeightSnapshotGoal
-                        ? "e.g. 12"
+                        ? "e.g. 182.4"
                         : isDurationGoal
                           ? "e.g. 30"
                           : "e.g. 1"
@@ -1690,8 +1743,8 @@ export default function GoalPage() {
                   />
                   {isWeightSnapshotGoal ? (
                     <div className={styles.helperText}>
-                      Enter total {goalUnitLabel.toLowerCase()} so far. Latest value drives goal
-                      progress.
+                      Enter your current weight. Progress compares your latest weight to your goal
+                      weight.
                     </div>
                   ) : (
                     <div className={styles.helperText}>
@@ -1798,7 +1851,7 @@ export default function GoalPage() {
                       <div>{checkIn.note || "No note"}</div>
                       {checkIn.progress_snapshot_value !== null ? (
                         <div className={styles.listMeta}>
-                          Snapshot: {checkIn.progress_snapshot_value} {goalUnitLabel}
+                          Current weight: {formatMetricValue(checkIn.progress_snapshot_value)}
                         </div>
                       ) : (
                         <div className={styles.listMeta}>

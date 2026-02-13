@@ -78,6 +78,7 @@ begin
     or new.goal_category is distinct from old.goal_category
     or new.count_unit_preset is distinct from old.count_unit_preset
     or new.cadence_target_value is distinct from old.cadence_target_value
+    or new.start_snapshot_value is distinct from old.start_snapshot_value
     or new.total_target_value is distinct from old.total_target_value
     or new.milestones is distinct from old.milestones
     or new.tags is distinct from old.tags
@@ -186,6 +187,7 @@ create table if not exists public.goals (
   goal_category text,
   count_unit_preset text,
   cadence_target_value integer,
+  start_snapshot_value double precision,
   total_target_value integer,
   total_progress_value integer not null default 0,
   target_value integer,
@@ -203,6 +205,7 @@ create table if not exists public.goals (
   updated_at timestamptz not null default now(),
   constraint goals_target_value_positive check (target_value is null or target_value > 0),
   constraint goals_cadence_target_value_positive check (cadence_target_value is null or cadence_target_value > 0),
+  constraint goals_start_snapshot_value_positive check (start_snapshot_value is null or start_snapshot_value > 0),
   constraint goals_total_target_value_positive check (total_target_value is null or total_target_value > 0),
   constraint goals_total_progress_value_nonnegative check (total_progress_value >= 0),
   constraint goals_goal_type_matches_model_type check (
@@ -240,6 +243,7 @@ alter table public.goals
   add column if not exists goal_category text,
   add column if not exists count_unit_preset text,
   add column if not exists cadence_target_value integer,
+  add column if not exists start_snapshot_value double precision,
   add column if not exists total_target_value integer,
   add column if not exists total_progress_value integer not null default 0,
   add column if not exists commitment_id text,
@@ -317,6 +321,20 @@ do $$
 begin
   if not exists (
     select 1 from pg_constraint
+    where conname = 'goals_start_snapshot_value_positive'
+      and conrelid = 'public.goals'::regclass
+  ) then
+    alter table public.goals
+      add constraint goals_start_snapshot_value_positive
+      check (start_snapshot_value is null or start_snapshot_value > 0);
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
     where conname = 'goals_total_target_value_positive'
       and conrelid = 'public.goals'::regclass
   ) then
@@ -348,7 +366,7 @@ create table if not exists public.check_ins (
   check_in_at timestamptz not null default now(),
   note text,
   progress_value integer not null default 1,
-  progress_snapshot_value integer,
+  progress_snapshot_value double precision,
   progress_unit text,
   proof_hash text,
   image_path text,
@@ -361,13 +379,30 @@ create table if not exists public.check_ins (
 
 alter table public.check_ins
   add column if not exists progress_value integer not null default 1,
-  add column if not exists progress_snapshot_value integer,
+  add column if not exists progress_snapshot_value double precision,
   add column if not exists progress_unit text,
   add column if not exists image_path text,
   add column if not exists onchain_commitment_id text,
   add column if not exists onchain_tx_hash text,
   add column if not exists onchain_chain_id integer,
   add column if not exists onchain_submitted_at timestamptz;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'check_ins'
+      and column_name = 'progress_snapshot_value'
+      and data_type <> 'double precision'
+  ) then
+    alter table public.check_ins
+      alter column progress_snapshot_value type double precision
+      using progress_snapshot_value::double precision;
+  end if;
+end
+$$;
 
 do $$
 begin

@@ -83,6 +83,36 @@ export function isWeightSnapshotPreset(preset: string | null | undefined): boole
   return SNAPSHOT_PRESET_KEYS.has(preset);
 }
 
+type SnapshotProgressInput = {
+  startValue: number | null;
+  currentValue: number | null;
+  targetValue: number | null;
+};
+
+export function calculateSnapshotProgressPercent(input: SnapshotProgressInput): number {
+  const { targetValue, currentValue } = input;
+  if (targetValue === null || currentValue === null) return 0;
+  if (!Number.isFinite(targetValue) || !Number.isFinite(currentValue)) return 0;
+
+  const startValue =
+    input.startValue !== null && Number.isFinite(input.startValue)
+      ? input.startValue
+      : currentValue;
+
+  if (startValue === targetValue) {
+    return currentValue === targetValue ? 100 : 0;
+  }
+
+  const neededChange = targetValue - startValue;
+  if (neededChange === 0) return 0;
+
+  const currentChange = currentValue - startValue;
+  const rawPercent = (currentChange / neededChange) * 100;
+
+  if (!Number.isFinite(rawPercent)) return 0;
+  return Math.max(0, Math.min(100, Math.round(rawPercent)));
+}
+
 function normalizePresetKey(value: string | null | undefined): string | null {
   if (!value) return null;
   const normalized = value
