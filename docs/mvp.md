@@ -49,8 +49,8 @@ Branding motto: "Invest in each other's success."
   - Use 6 ordered preset categories/domains (`🏋️ Body`, `🧠 Mind`, `💼 Work`, `💰 Money`, `❤️ Relationships`, `🏠 Life`) and preset unit keys from `docs/goalsystem.md`
   - Use integer quantities in MVP for standard count presets; snapshot weight check-ins allow decimals (up to 2 places)
 - Duration goals:
-  - Canonical unit is minutes in storage
-  - Pace input supports `minutes` or `hours` in UI; values are normalized to minutes
+  - Pace input supports `minutes` or `hours`, and the selected unit is persisted in `target_unit`
+  - Duration check-ins/log labels follow the selected unit (`Minutes logged` vs `Hours logged`)
   - Daily/weekly minimum target is 5 minutes
 - Cadence options: `daily`, `weekly`, `by_deadline`
 - Start date and deadline are required for new goals

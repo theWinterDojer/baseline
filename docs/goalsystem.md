@@ -29,7 +29,7 @@ This plan replaces the current open-ended goal setup with a guided flow and stri
 
 ### Goal Type
 1. `count`: track a numeric quantity (sessions, pages, miles, reps, etc.).
-2. `duration`: track time in minutes (UI can display minutes/hours).
+2. `duration`: track time in a selected unit (`minutes` or `hours`).
 
 ### Cadence
 1. `daily`: target repeats each day in the date range.
@@ -70,7 +70,7 @@ Nested levels:
 3. `unit` (only if `Count`): choose preset unit from the selected category
 
 Rules:
-1. If `duration`, unit is fixed to minutes and wizard moves to next main card.
+1. If `duration`, user selects `minutes` or `hours` in Pace before entering target.
 2. If `count`, category is required before finishing measurement.
 3. No free-text custom units in MVP.
 4. Count flow does not preselect a category on entry; user must choose one explicitly.
@@ -90,7 +90,7 @@ Fields shown by cadence:
 1. `daily`: numeric target per day
 2. `weekly`: numeric target per week
 3. `by_deadline`: one total target
-4. duration goals allow UI input unit toggle (`minutes` | `hours`), normalized to minutes in storage/math
+4. duration goals allow unit toggle (`minutes` | `hours`) and persist the selected unit in `target_unit`
 5. `bodyweight_logged` uses snapshot setup: one row with `Current weight` and `Goal weight`; cadence is locked to `by_deadline`
 
 ### Card 4: Timeline
@@ -117,10 +117,12 @@ For all goals:
 4. `count_unit`: text nullable (required when goal_type = count)
 5. `total_target_value`: integer > 0 (computed at create/update)
 6. `total_progress_value`: integer >= 0 (derived from check-ins)
+7. `target_unit`: `minutes | hours` for duration goals (legacy compatibility column retained)
 
 For duration goals:
-1. canonical unit is minutes in storage
-2. UI may display hours/minutes for readability
+1. selected unit is stored in `target_unit` (`minutes` or `hours`)
+2. check-in labels/chips and list rendering use the selected unit
+3. daily/weekly validation enforces minimum 5 minutes equivalent
 
 ### Occurrence math
 Let `days = calendar_day_diff(start_at, deadline_at) + 1` (inclusive).
@@ -138,7 +140,7 @@ Let `days = calendar_day_diff(start_at, deadline_at) + 1` (inclusive).
 Each check-in stores `progress_value` integer > 0.
 
 1. count goal check-in contributes count quantity
-2. duration goal check-in contributes minutes
+2. duration goal check-in contributes value in the goal's selected unit (`minutes` or `hours`)
 
 `total_progress_value = sum(progress_value for goal)`
 
@@ -157,8 +159,8 @@ Special handling for snapshot presets:
 - default quick action: `+1`
 - optional quantity input for larger entries (for example 5 pages)
 2. Duration goal:
-- minutes input required
-- quick chips: 15, 30, 45, 60
+- input label matches selected unit (`Minutes logged` or `Hours logged`)
+- quick chips match unit (minutes: `15/30/45/60`; hours: `1/2/3/4`)
 3. Snapshot weight goal (`bodyweight_logged`):
 - input is `Current weight`
 - decimal values are allowed (up to 2 places)
@@ -175,7 +177,7 @@ Special handling for snapshot presets:
 7. Snapshot weight check-ins accept decimal values > 0 (up to 2 places).
 8. No max target cap in MVP.
 9. On save, show exact interpretation before confirmation.
-10. Duration target input can be entered as minutes or hours in UI; value is normalized to minutes before persistence.
+10. Duration target input can be entered as minutes or hours in UI; selected unit is persisted and reused in check-ins.
 
 ## Category and Preset Catalog (MVP)
 Top-level categories are ordered by expected popularity. Presets in each category are also ordered from common to niche.
@@ -260,7 +262,7 @@ Consolidation rules:
 2. Check-ins table:
 - add `progress_value` integer not null default 1
 - add `progress_snapshot_value` optional for snapshot-based presets (`bodyweight_logged`; legacy pounds presets remain readable); use double precision for decimal weight logging
-- add `progress_unit` optional (`count` or `minutes`) if needed for audit clarity
+- add `progress_unit` optional (`count`, `minutes`, or `hours`) for audit clarity
 3. Add DB checks enforcing valid combinations by goal type.
 4. Update all writes/reads to use new fields first, fallback only during migration window.
 
@@ -271,7 +273,7 @@ Consolidation rules:
 - map `target_value -> cadence_target_value -> total_target_value`
 2. Existing `time` goals:
 - map to `goal_type = duration`
-- convert unit to minutes where possible; otherwise flag for manual review
+- preserve stored `target_unit` where present; default to `minutes` when missing
 3. Existing `milestone` goals:
 - freeze as legacy read-only tracking mode
 - no new milestone creation
@@ -447,7 +449,7 @@ UI:
 1. level `type`: two `OptionCard`s (`Track amount`, `Track time`)
 2. level `category` (count path): category cards only
 3. level `unit` (count path): preset chips for selected category only
-4. duration path: lock unit to minutes and continue to next main card
+4. duration path: continue to Pace, where duration unit is selected
 5. level-aware back action inside the card (`unit -> category -> type`)
 6. selected unit shows plain-language helper text explaining what will be logged
 
@@ -464,7 +466,7 @@ UI:
 1. cadence `OptionCard`s (`Daily`, `Weekly`, `By deadline`)
 2. duration goals show `minutes`/`hours` selector before target input
 3. target input with dynamic label: Daily = "Target per day", Weekly = "Target per week", By deadline = "Total target" (includes selected duration unit in label for duration goals)
-4. duration input unit is normalized to minutes for total-target computation and storage
+4. duration input unit is preserved (`minutes` or `hours`) for persistence and check-in UX
 
 Validation:
 1. integer > 0

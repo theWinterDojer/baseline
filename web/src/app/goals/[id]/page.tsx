@@ -185,15 +185,83 @@ const formatMetricValue = (value: number) => {
   return rounded.toFixed(2).replace(/\.?0+$/, "");
 };
 
-const toEditForm = (nextGoal: Goal) => ({
-  title: nextGoal.title ?? "",
-  hasStartDate: Boolean(nextGoal.start_at),
-  startDate: formatDateInput(nextGoal.start_at),
-  deadline: formatDateInput(nextGoal.deadline_at),
-  modelType: nextGoal.model_type,
-  targetValue: nextGoal.target_value ? String(nextGoal.target_value) : "",
-  targetUnit: nextGoal.target_unit ?? "",
-});
+const isSchemaTrackingConfigured = (nextGoal: Goal) =>
+  nextGoal.goal_type !== null ||
+  nextGoal.cadence !== null ||
+  nextGoal.goal_category !== null ||
+  nextGoal.count_unit_preset !== null ||
+  nextGoal.cadence_target_value !== null ||
+  nextGoal.total_target_value !== null;
+
+const toDateInputUtcMillis = (value: string): number | null => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [yearRaw, monthRaw, dayRaw] = value.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  if (
+    !Number.isSafeInteger(year) ||
+    !Number.isSafeInteger(month) ||
+    !Number.isSafeInteger(day)
+  ) {
+    return null;
+  }
+  const timestamp = Date.UTC(year, month - 1, day);
+  return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const toInclusiveDateRangeDays = (startDate: string, deadlineDate: string): number | null => {
+  const startAt = toDateInputUtcMillis(startDate);
+  const deadlineAt = toDateInputUtcMillis(deadlineDate);
+  if (startAt === null || deadlineAt === null) return null;
+  if (deadlineAt < startAt) return null;
+  const days = Math.floor((deadlineAt - startAt) / (24 * 60 * 60 * 1000)) + 1;
+  return days > 0 && Number.isSafeInteger(days) ? days : null;
+};
+
+const calculateTotalTargetValue = ({
+  cadence,
+  cadenceTargetValue,
+  startDate,
+  deadlineDate,
+}: {
+  cadence: Goal["cadence"];
+  cadenceTargetValue: number;
+  startDate: string;
+  deadlineDate: string;
+}): number | null => {
+  if (!Number.isSafeInteger(cadenceTargetValue) || cadenceTargetValue <= 0) return null;
+
+  if (cadence === "by_deadline" || cadence === null) {
+    return cadenceTargetValue;
+  }
+
+  const days = toInclusiveDateRangeDays(startDate, deadlineDate);
+  if (!days) return null;
+
+  const occurrences = cadence === "daily" ? days : Math.ceil(days / 7);
+  const total = cadenceTargetValue * occurrences;
+  if (!Number.isSafeInteger(total) || total <= 0) return null;
+  return total;
+};
+
+const toEditForm = (nextGoal: Goal) => {
+  const targetValueSource = isSchemaTrackingConfigured(nextGoal)
+    ? nextGoal.cadence_target_value ??
+      nextGoal.target_value ??
+      nextGoal.total_target_value
+    : nextGoal.target_value;
+
+  return {
+    title: nextGoal.title ?? "",
+    hasStartDate: Boolean(nextGoal.start_at),
+    startDate: formatDateInput(nextGoal.start_at),
+    deadline: formatDateInput(nextGoal.deadline_at),
+    modelType: nextGoal.model_type,
+    targetValue: targetValueSource ? String(targetValueSource) : "",
+    targetUnit: nextGoal.target_unit ?? "",
+  };
+};
 
 export default function GoalPage() {
   const params = useParams<{ id: string }>();
@@ -254,6 +322,8 @@ export default function GoalPage() {
   const isDurationGoal =
     goal?.goal_type === "duration" || goal?.model_type === "time";
   const isWeightSnapshotGoal = isWeightSnapshotPreset(goal?.count_unit_preset);
+  const durationTrackingUnit =
+    isDurationGoal && goal?.target_unit === "hours" ? "hours" : "minutes";
   const goalUnitLabel =
     (isWeightSnapshotGoal
       ? "weight"
@@ -263,13 +333,27 @@ export default function GoalPage() {
   const progressTargetValue = isWeightSnapshotGoal
     ? goal?.cadence_target_value ?? goal?.target_value ?? goal?.total_target_value ?? null
     : goal?.total_target_value ?? goal?.target_value ?? null;
-  const isSchemaTrackingGoal =
-    goal?.goal_type !== null ||
-    goal?.cadence !== null ||
-    goal?.goal_category !== null ||
-    goal?.count_unit_preset !== null ||
-    goal?.cadence_target_value !== null ||
-    goal?.total_target_value !== null;
+  const isSchemaTrackingGoal = goal ? isSchemaTrackingConfigured(goal) : false;
+  const schemaTargetLabel = isWeightSnapshotGoal
+    ? "Goal weight"
+    : goal?.cadence === "daily"
+      ? isDurationGoal
+        ? `${durationTrackingUnit === "hours" ? "Hours" : "Minutes"} per day`
+        : "Amount per day"
+      : goal?.cadence === "weekly"
+        ? isDurationGoal
+          ? `${durationTrackingUnit === "hours" ? "Hours" : "Minutes"} per week`
+          : "Amount per week"
+        : isDurationGoal
+          ? `Total ${durationTrackingUnit}`
+          : "Total target";
+  const schemaTargetHelper = isWeightSnapshotGoal
+    ? "Use a whole-number goal weight."
+    : isDurationGoal
+      ? goal?.cadence === "by_deadline"
+        ? `Set the total ${durationTrackingUnit} to complete by the deadline.`
+        : `Set the ${durationTrackingUnit} target for each cadence period.`
+      : `Measured in ${goalUnitLabel}.`;
 
   const snapshotProgressRange = useMemo(() => {
     if (!isWeightSnapshotGoal) return null;
@@ -411,7 +495,7 @@ export default function GoalPage() {
       return;
     }
     if (goal.goal_type === "duration" || goal.model_type === "time") {
-      setCheckInValueInput("30");
+      setCheckInValueInput(goal.target_unit === "hours" ? "1" : "30");
       return;
     }
     setCheckInValueInput("1");
@@ -859,7 +943,12 @@ export default function GoalPage() {
       check_in_at: checkInTimestamp,
       progress_value: isActiveWeightSnapshotGoal ? 1 : parsedProgressValue,
       progress_snapshot_value: isActiveWeightSnapshotGoal ? parsedProgressValue : null,
-      progress_unit: isActiveDurationGoal ? "minutes" : "count",
+      progress_unit:
+        isActiveDurationGoal && activeGoal.target_unit === "hours"
+          ? "hours"
+          : isActiveDurationGoal
+            ? "minutes"
+            : "count",
       note: normalizedNote,
       proof_hash: generatedProofHash,
     };
@@ -927,7 +1016,13 @@ export default function GoalPage() {
       if (uploadedImagePath) {
         await supabase.storage.from(CHECK_IN_IMAGES_BUCKET).remove([uploadedImagePath]);
       }
-      setSubmitError(insertError.message);
+      if (insertError.message.includes("check_ins_progress_unit_valid")) {
+        setSubmitError(
+          "Database schema is out of date for hour-based check-ins. Apply the latest supabase/schema.sql, then try again."
+        );
+      } else {
+        setSubmitError(insertError.message);
+      }
       setSubmittingCheckIn(false);
       return;
     }
@@ -1179,6 +1274,11 @@ export default function GoalPage() {
       return;
     }
 
+    if (isSchemaTrackingGoal && !editForm.startDate) {
+      setEditError("Start date is required for this goal.");
+      return;
+    }
+
     if (isSchemaTrackingGoal && editForm.modelType !== goal.model_type) {
       setEditError(
         "This goal uses the new tracking schema. Changing model type is not supported in this editor yet."
@@ -1188,11 +1288,30 @@ export default function GoalPage() {
 
     const requiresTarget = editForm.modelType !== "milestone";
     const targetValueNumber = requiresTarget
-      ? Number(editForm.targetValue)
+      ? parsePositiveInteger(editForm.targetValue)
       : null;
 
-    if (requiresTarget && (!targetValueNumber || targetValueNumber <= 0)) {
-      setEditError("Goal value must be greater than 0.");
+    if (requiresTarget && targetValueNumber === null) {
+      setEditError(
+        isWeightSnapshotGoal
+          ? "Goal weight must be a whole number greater than 0."
+          : "Target must be a whole number greater than 0."
+      );
+      return;
+    }
+
+    const schemaTotalTargetValue =
+      isSchemaTrackingGoal && requiresTarget && targetValueNumber !== null
+        ? calculateTotalTargetValue({
+            cadence: goal.cadence,
+            cadenceTargetValue: targetValueNumber,
+            startDate: editForm.startDate,
+            deadlineDate: editForm.deadline,
+          })
+        : targetValueNumber;
+
+    if (isSchemaTrackingGoal && requiresTarget && schemaTotalTargetValue === null) {
+      setEditError("Start date must be on or before the deadline.");
       return;
     }
 
@@ -1203,7 +1322,7 @@ export default function GoalPage() {
       : null;
 
     const startISO =
-      editForm.hasStartDate && editForm.startDate
+      (isSchemaTrackingGoal || editForm.hasStartDate) && editForm.startDate
         ? new Date(`${editForm.startDate}T00:00:00`).toISOString()
         : null;
     const deadlineISO = new Date(
@@ -1216,18 +1335,24 @@ export default function GoalPage() {
       title: editForm.title.trim(),
       start_at: startISO,
       deadline_at: deadlineISO,
-      model_type: editForm.modelType,
-      target_value: targetValueNumber,
+      model_type: isSchemaTrackingGoal ? goal.model_type : editForm.modelType,
+      target_value:
+        requiresTarget && targetValueNumber !== null
+          ? isSchemaTrackingGoal && !isWeightSnapshotGoal
+            ? schemaTotalTargetValue
+            : targetValueNumber
+          : null,
       target_unit: nextTargetUnit,
     };
 
     const trackingPatch =
-      isSchemaTrackingGoal && requiresTarget
+      isSchemaTrackingGoal &&
+      requiresTarget &&
+      targetValueNumber !== null &&
+      schemaTotalTargetValue !== null
         ? {
-            total_target_value: targetValueNumber,
-            ...(goal.cadence === "by_deadline"
-              ? { cadence_target_value: targetValueNumber }
-              : {}),
+            cadence_target_value: targetValueNumber,
+            total_target_value: schemaTotalTargetValue,
           }
         : {};
 
@@ -1297,7 +1422,6 @@ export default function GoalPage() {
             <section className={styles.card}>
               <div className={styles.title}>{goal.title}</div>
               <div className={styles.metaRow}>
-                <span className={styles.pill}>{goal.model_type}</span>
                 <span className={styles.pill}>{goal.privacy}</span>
                 <span className={styles.pill}>{goal.status}</span>
                 {pledgeCount > 0 ? (
@@ -1447,8 +1571,7 @@ export default function GoalPage() {
                   <form className={styles.form} onSubmit={handleUpdateGoal}>
                     {isSchemaTrackingGoal ? (
                       <div className={styles.notice}>
-                        This goal uses the wizard tracking model. Model type and unit are locked in
-                        this editor.
+                        This goal uses the wizard tracking setup.
                       </div>
                     ) : null}
                     <div className={styles.field}>
@@ -1470,43 +1593,7 @@ export default function GoalPage() {
                     </div>
 
                     <div className={styles.row}>
-                      <div className={styles.field}>
-                        <label className={styles.label} htmlFor="edit-deadline">
-                          <span className={styles.labelInline}>
-                            Deadline
-                            <span className={styles.checkboxInline}>
-                              <input
-                                type="checkbox"
-                                className={styles.checkbox}
-                                checked={editForm.hasStartDate}
-                                onChange={(event) =>
-                                  setEditForm((current) => ({
-                                    ...current,
-                                    hasStartDate: event.target.checked,
-                                    startDate: event.target.checked
-                                      ? current.startDate
-                                      : "",
-                                  }))
-                                }
-                              />
-                              Add start date
-                            </span>
-                          </span>
-                        </label>
-                        <input
-                          id="edit-deadline"
-                          type="date"
-                          className={styles.input}
-                          value={editForm.deadline}
-                          onChange={(event) =>
-                            setEditForm((current) => ({
-                              ...current,
-                              deadline: event.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                      {editForm.hasStartDate ? (
+                      {isSchemaTrackingGoal || editForm.hasStartDate ? (
                         <div className={styles.field}>
                           <label className={styles.label} htmlFor="edit-start">
                             Start date
@@ -1533,7 +1620,6 @@ export default function GoalPage() {
                             id="edit-model"
                             className={styles.input}
                             value={editForm.modelType}
-                            disabled={isSchemaTrackingGoal}
                             onChange={(event) =>
                               setEditForm((current) => ({
                                 ...current,
@@ -1551,9 +1637,47 @@ export default function GoalPage() {
                           </select>
                         </div>
                       )}
+                      <div className={styles.field}>
+                        <label className={styles.label} htmlFor="edit-deadline">
+                          <span className={styles.labelInline}>
+                            Deadline
+                            {!isSchemaTrackingGoal ? (
+                              <span className={styles.checkboxInline}>
+                                <input
+                                  type="checkbox"
+                                  className={styles.checkbox}
+                                  checked={editForm.hasStartDate}
+                                  onChange={(event) =>
+                                    setEditForm((current) => ({
+                                      ...current,
+                                      hasStartDate: event.target.checked,
+                                      startDate: event.target.checked
+                                        ? current.startDate
+                                        : "",
+                                    }))
+                                  }
+                                />
+                                Add start date
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                        <input
+                          id="edit-deadline"
+                          type="date"
+                          className={styles.input}
+                          value={editForm.deadline}
+                          onChange={(event) =>
+                            setEditForm((current) => ({
+                              ...current,
+                              deadline: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
                     </div>
 
-                    {editForm.hasStartDate ? (
+                    {!isSchemaTrackingGoal && editForm.hasStartDate ? (
                       <div className={styles.row}>
                         <div className={styles.field}>
                           <label className={styles.label} htmlFor="edit-model">
@@ -1563,7 +1687,6 @@ export default function GoalPage() {
                             id="edit-model"
                             className={styles.input}
                             value={editForm.modelType}
-                            disabled={isSchemaTrackingGoal}
                             onChange={(event) =>
                               setEditForm((current) => ({
                                 ...current,
@@ -1583,44 +1706,113 @@ export default function GoalPage() {
                       </div>
                     ) : null}
 
-                    <div className={styles.row}>
-                      <div className={styles.field}>
-                        <label className={styles.label} htmlFor="edit-target-value">
-                          Goal value
-                        </label>
-                        <input
-                          id="edit-target-value"
-                          type="number"
-                          className={styles.input}
-                          value={editForm.targetValue}
-                          onChange={(event) =>
-                            setEditForm((current) => ({
-                              ...current,
-                              targetValue: event.target.value,
-                            }))
-                          }
-                          placeholder="12"
-                        />
+                    {isSchemaTrackingGoal ? (
+                      <>
+                        {isWeightSnapshotGoal ? (
+                          <div className={styles.row}>
+                            <div className={styles.field}>
+                              <label className={styles.label}>Current weight</label>
+                              <input
+                                className={styles.input}
+                                value={
+                                  goal.start_snapshot_value !== null
+                                    ? formatMetricValue(goal.start_snapshot_value)
+                                    : ""
+                                }
+                                placeholder="Not set"
+                                disabled
+                              />
+                              <div className={styles.helperText}>
+                                Baseline from setup used for weight progress math.
+                              </div>
+                            </div>
+                            <div className={styles.field}>
+                              <label className={styles.label} htmlFor="edit-target-value">
+                                Goal weight
+                              </label>
+                              <input
+                                id="edit-target-value"
+                                type="number"
+                                min={1}
+                                step={1}
+                                className={styles.input}
+                                value={editForm.targetValue}
+                                onChange={(event) =>
+                                  setEditForm((current) => ({
+                                    ...current,
+                                    targetValue: event.target.value,
+                                  }))
+                                }
+                                placeholder="170"
+                              />
+                              <div className={styles.helperText}>{schemaTargetHelper}</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className={styles.row}>
+                            <div className={styles.field}>
+                              <label className={styles.label} htmlFor="edit-target-value">
+                                {schemaTargetLabel}
+                              </label>
+                              <input
+                                id="edit-target-value"
+                                type="number"
+                                min={1}
+                                step={1}
+                                className={styles.input}
+                                value={editForm.targetValue}
+                                onChange={(event) =>
+                                  setEditForm((current) => ({
+                                    ...current,
+                                    targetValue: event.target.value,
+                                  }))
+                                }
+                                placeholder={goal.cadence === "by_deadline" ? "30" : "5"}
+                              />
+                              <div className={styles.helperText}>{schemaTargetHelper}</div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className={styles.row}>
+                        <div className={styles.field}>
+                          <label className={styles.label} htmlFor="edit-target-value">
+                            Goal value
+                          </label>
+                          <input
+                            id="edit-target-value"
+                            type="number"
+                            className={styles.input}
+                            value={editForm.targetValue}
+                            onChange={(event) =>
+                              setEditForm((current) => ({
+                                ...current,
+                                targetValue: event.target.value,
+                              }))
+                            }
+                            placeholder="12"
+                          />
+                        </div>
+                        <div className={styles.field}>
+                          <label className={styles.label} htmlFor="edit-target-unit">
+                            Goal unit
+                          </label>
+                          <input
+                            id="edit-target-unit"
+                            className={styles.input}
+                            value={editForm.targetUnit}
+                            onChange={(event) =>
+                              setEditForm((current) => ({
+                                ...current,
+                                targetUnit: event.target.value,
+                              }))
+                            }
+                            placeholder="miles"
+                          />
+                        </div>
                       </div>
-                      <div className={styles.field}>
-                        <label className={styles.label} htmlFor="edit-target-unit">
-                          Goal unit
-                        </label>
-                        <input
-                          id="edit-target-unit"
-                          className={styles.input}
-                          value={editForm.targetUnit}
-                          disabled={isSchemaTrackingGoal}
-                          onChange={(event) =>
-                            setEditForm((current) => ({
-                              ...current,
-                              targetUnit: event.target.value,
-                            }))
-                          }
-                          placeholder="miles"
-                        />
-                      </div>
-                    </div>
+                    )}
 
                     {editError ? <div className={styles.message}>{editError}</div> : null}
                     {editMessage ? (
@@ -1721,7 +1913,9 @@ export default function GoalPage() {
                     {isWeightSnapshotGoal
                       ? "Current weight"
                       : isDurationGoal
-                        ? "Minutes logged"
+                        ? durationTrackingUnit === "hours"
+                          ? "Hours logged"
+                          : "Minutes logged"
                         : `Quantity (${goalUnitLabel})`}
                   </label>
                   <input
@@ -1736,7 +1930,9 @@ export default function GoalPage() {
                       isWeightSnapshotGoal
                         ? "e.g. 182.4"
                         : isDurationGoal
-                          ? "e.g. 30"
+                          ? durationTrackingUnit === "hours"
+                            ? "e.g. 1"
+                            : "e.g. 30"
                           : "e.g. 1"
                     }
                     disabled={submittingCheckIn}
@@ -1753,15 +1949,18 @@ export default function GoalPage() {
                   )}
                   {isDurationGoal && !isWeightSnapshotGoal ? (
                     <div className={styles.buttonRow}>
-                      {[15, 30, 45, 60].map((minutes) => (
+                      {(durationTrackingUnit === "hours"
+                        ? [1, 2, 3, 4]
+                        : [15, 30, 45, 60]
+                      ).map((value) => (
                         <button
-                          key={minutes}
+                          key={value}
                           type="button"
                           className={styles.quickValueButton}
-                          onClick={() => setCheckInValueInput(String(minutes))}
+                          onClick={() => setCheckInValueInput(String(value))}
                           disabled={submittingCheckIn}
                         >
-                          {minutes}m
+                          {durationTrackingUnit === "hours" ? `${value}h` : `${value}m`}
                         </button>
                       ))}
                     </div>
@@ -1856,9 +2055,9 @@ export default function GoalPage() {
                       ) : (
                         <div className={styles.listMeta}>
                           Logged: {checkIn.progress_value}{" "}
-                          {checkIn.progress_unit === "minutes"
-                            ? "minutes"
-                            : goalUnitLabel}
+                          {checkIn.progress_unit === "count" || !checkIn.progress_unit
+                            ? goalUnitLabel
+                            : checkIn.progress_unit}
                         </div>
                       )}
                       {checkIn.proof_hash ? (

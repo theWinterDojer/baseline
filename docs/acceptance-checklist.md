@@ -3,7 +3,7 @@
 ## Create Goal
 - [ ] Signed-in user can create a goal through the 5-step wizard (intent, measurement, pace, timeline, review)
 - [ ] New goal creation supports `count` and `duration` only (no new milestone goals)
-- [ ] Count goals require category + preset unit selection; duration goals support minutes/hours input and normalize to minutes
+- [ ] Count goals require category + preset unit selection; duration goals support minutes/hours input and persist selected duration unit
 - [ ] `bodyweight_logged` setup asks for both `Current weight` and `Goal weight` in the pace step and stores baseline start weight
 - [ ] Goals are private by default
 - [ ] Goal is persisted in Supabase with the correct userId
@@ -19,6 +19,7 @@
 - [ ] Progress summary updates from quantitative progress values (not raw check-in count)
 - [ ] Snapshot goals (`bodyweight_logged`, plus legacy pounds presets) use latest snapshot progress from check-ins
 - [ ] Snapshot weight check-ins accept decimal current-weight entries
+- [ ] Duration check-ins use the goal's duration unit (`minutes` or `hours`) for label, quick chips, and saved `progress_unit`
 - [ ] No penalties or lockouts for missed days
 
 ## Auth (Wallet-First)

@@ -253,7 +253,11 @@ export default function Home() {
   );
   const cadenceTargetStorageValue = useMemo(() => {
     if (!cadenceTargetNumber) return null;
-    if (goalForm.modelType === "time" && durationInputUnit === "hours") {
+    return cadenceTargetNumber;
+  }, [cadenceTargetNumber]);
+  const cadenceTargetDurationMinutes = useMemo(() => {
+    if (!cadenceTargetNumber || goalForm.modelType !== "time") return null;
+    if (durationInputUnit === "hours") {
       const minutesValue = cadenceTargetNumber * 60;
       return Number.isSafeInteger(minutesValue) ? minutesValue : null;
     }
@@ -296,12 +300,12 @@ export default function Home() {
     if (!cadenceTargetNumber || !totalTargetValue) return null;
     if (goalForm.modelType === "time") {
       if (goalForm.cadence === "daily") {
-        return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} per day from ${goalForm.startDate} to ${goalForm.deadline} (${totalTargetValue} minutes total).`;
+        return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} per day from ${goalForm.startDate} to ${goalForm.deadline} (${totalTargetValue} ${goalUnitLabel} total).`;
       }
       if (goalForm.cadence === "weekly") {
-        return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} per week from ${goalForm.startDate} to ${goalForm.deadline} (${totalTargetValue} minutes total).`;
+        return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} per week from ${goalForm.startDate} to ${goalForm.deadline} (${totalTargetValue} ${goalUnitLabel} total).`;
       }
-      return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} by ${goalForm.deadline} (${totalTargetValue} minutes total).`;
+      return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} by ${goalForm.deadline} (${totalTargetValue} ${goalUnitLabel} total).`;
     }
     if (goalForm.cadence === "daily") {
       return `${title}: ${cadenceTargetNumber} ${goalUnitLabel} per day from ${goalForm.startDate} to ${goalForm.deadline} (${totalTargetValue} total).`;
@@ -352,7 +356,7 @@ export default function Home() {
     } else if (
       goalForm.modelType === "time" &&
       goalForm.cadence !== "by_deadline" &&
-      cadenceTargetStorageValue < 5
+      (!cadenceTargetDurationMinutes || cadenceTargetDurationMinutes < 5)
     ) {
       errors[2] = "Duration goals need at least 5 minutes for daily/weekly cadence.";
     }
@@ -378,6 +382,7 @@ export default function Home() {
     goalForm.presetKey,
     goalForm.startDate,
     goalForm.title,
+    cadenceTargetDurationMinutes,
     isSnapshotPresetSelected,
     goalSummary,
     snapshotStartWeight,
@@ -678,20 +683,22 @@ export default function Home() {
       return;
     }
 
-    const cadenceTargetValue =
-      goalForm.modelType === "time" && durationInputUnit === "hours"
-        ? cadenceTargetInputValue * 60
-        : cadenceTargetInputValue;
+    const cadenceTargetValue = cadenceTargetInputValue;
 
     if (!Number.isSafeInteger(cadenceTargetValue)) {
       setGoalError("Target value is too large.");
       return;
     }
 
+    const cadenceTargetMinutesForValidation =
+      goalForm.modelType === "time" && durationInputUnit === "hours"
+        ? cadenceTargetValue * 60
+        : cadenceTargetValue;
+
     if (
       goalForm.modelType === "time" &&
       goalForm.cadence !== "by_deadline" &&
-      cadenceTargetValue < 5
+      cadenceTargetMinutesForValidation < 5
     ) {
       setGoalError("Duration goals need at least 5 minutes for daily/weekly cadence.");
       return;
@@ -722,7 +729,7 @@ export default function Home() {
       : totalTargetValue;
     const targetUnitValue =
       goalForm.modelType === "time"
-        ? "minutes"
+        ? durationInputUnit
         : isSnapshotPresetSelected
           ? "weight"
         : getPresetLabel(goalForm.presetKey)?.toLowerCase() ?? "units";
@@ -748,7 +755,8 @@ export default function Home() {
       targetUnit: targetUnitValue,
       cadence: goalForm.cadence,
       category: goalForm.modelType === "count" ? goalForm.categoryKey : null,
-      preset: goalForm.modelType === "count" ? goalForm.presetKey : "minutes",
+      preset:
+        goalForm.modelType === "count" ? goalForm.presetKey : durationInputUnit,
       cadenceTargetValue,
       totalTargetValue: targetValueNumber,
     });
@@ -805,7 +813,8 @@ export default function Home() {
           modelType: goalForm.modelType,
           cadence: goalForm.cadence,
           goalCategory: goalForm.modelType === "count" ? goalForm.categoryKey : null,
-          unitPreset: goalForm.modelType === "count" ? goalForm.presetKey : "minutes",
+          unitPreset:
+            goalForm.modelType === "count" ? goalForm.presetKey : durationInputUnit,
         },
       });
 
@@ -1339,7 +1348,7 @@ export default function Home() {
                                 {isSnapshotPresetSelected
                                   ? `${cadenceTargetNumber ?? "-"}`
                                   : goalForm.modelType === "time"
-                                  ? `${totalTargetValue ?? "-"} minutes`
+                                  ? `${totalTargetValue ?? "-"} ${goalUnitLabel}`
                                   : `${totalTargetValue ?? "-"} ${goalUnitLabel}`}
                               </span>
                             </div>

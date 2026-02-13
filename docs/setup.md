@@ -27,6 +27,7 @@ This guide is the recommended order to get the MVP vertical slice running.
 - Create a goal (private by default).
 - Add a check-in for that goal (with and without an image attachment).
 - For `bodyweight_logged`, verify setup captures `Current weight` + `Goal weight`, and check-ins accept decimal current-weight values.
+- For duration goals, verify check-in labels/quick chips match the selected unit (`minutes` or `hours`) and that hour-based check-ins save without `check_ins_progress_unit_valid` errors.
 - Toggle to public and verify public read access.
 - Run `supabase/verify.sql` in the SQL editor to validate required tables, columns, triggers, policies, and storage bucket setup.
 - For real-chain mode, also verify `goals.commitment_*` and `check_ins.onchain_*` fields are populated after public-goal actions.

@@ -434,15 +434,18 @@ $$;
 
 do $$
 begin
-  if not exists (
+  if exists (
     select 1 from pg_constraint
     where conname = 'check_ins_progress_unit_valid'
       and conrelid = 'public.check_ins'::regclass
   ) then
     alter table public.check_ins
-      add constraint check_ins_progress_unit_valid
-      check (progress_unit is null or progress_unit in ('count', 'minutes'));
+      drop constraint check_ins_progress_unit_valid;
   end if;
+
+  alter table public.check_ins
+    add constraint check_ins_progress_unit_valid
+    check (progress_unit is null or progress_unit in ('count', 'minutes', 'hours'));
 end
 $$;
 

@@ -13,7 +13,7 @@ When goal-system requirements change, keep `docs/mvp.md`, `docs/goalsystem.md`, 
 ## Next Suggested Steps (Ordered Execution Plan)
 ### Phase 5: Goal-System Completion (Current Focus)
 - [x] Priority 1: Weight-loss/snapshot-goal clarity pass end-to-end (wizard copy, review copy, goal detail helper text, and check-in input hints) completed with explicit `current weight` language, side-by-side setup fields (`Current weight` + `Goal weight`), and baseline storage in `goals.start_snapshot_value`.
-- [ ] Refactor post-create goal detail/edit experience to the new goal system (remove legacy model/value/unit framing; align edit UI and rules with type/cadence/category/preset targets).
+- [x] Refactor post-create goal detail/edit experience to the new goal system (remove legacy model/value/unit framing; align edit UI and rules with type/cadence/category/preset targets). Edit screen now reflects each goal's saved tracking configuration (type/cadence/unit), with weight-specific fields shown only for weight snapshot goals.
 - [x] Align goal detail copy for snapshot goals (`bodyweight_logged`) so weight goals are explicit and non-ambiguous (current value vs target wording).
 - [ ] Finalize daily/weekly semantics decision (cumulative target vs period-compliance) and update copy/validation/docs to match.
 - [ ] Complete wizard Step 4 accessibility pass (focus management, reduced-motion behavior, keyboard flow, mobile tap-target QA).
@@ -63,7 +63,7 @@ When goal-system requirements change, keep `docs/mvp.md`, `docs/goalsystem.md`, 
 - [x] Goal system rebuild spec documented in `docs/goalsystem.md` (wizard UX, preset catalog, and tracking rules)
 - [x] Wizard UX spec revised to single-card progression with nested measurement mini-flow (`type -> category -> unit`) and level-aware back behavior
 - [x] Preset catalog consolidated to 6 emoji domains (`🏋️ Body`, `🧠 Mind`, `💼 Work`, `💰 Money`, `❤️ Relationships`, `🏠 Life`) with simplified unit set and legacy label compatibility
-- [x] Pace step updated for duration unit input toggle (`minutes` / `hours`) with minute-normalized storage and explicit `Save goal` click requirement on Review
+- [x] Pace step updated for duration unit input toggle (`minutes` / `hours`) with unit-aware persistence/display and explicit `Save goal` click requirement on Review
 - [x] Goal onboarding plain-language copy pass: simplified measurement wording and friendlier unit labels
 - [x] Goal system rebuild Phase 1 implemented: new goal/check-in tracking schema fields + compatibility fallback writes/reads + verify script updates
 - [x] Goal system rebuild Phase 2 implemented: dashboard create flow replaced with 5-step wizard and milestone removed from new-goal selection paths
@@ -105,6 +105,7 @@ When goal-system requirements change, keep `docs/mvp.md`, `docs/goalsystem.md`, 
 - [x] HabitRegistry deployed and verified on Base mainnet; `NEXT_PUBLIC_HABIT_REGISTRY_ADDRESS` configured
 - [x] Real-chain QA completed: public-goal commitment + check-in txs confirmed and DB on-chain fields validated
 - [x] Snapshot weight-flow update: bodyweight wizard now captures `Current weight` + `Goal weight`; baseline is saved in `goals.start_snapshot_value`; snapshot check-ins accept decimals; owner/public progress now computes from `start -> current -> goal`
+- [x] Duration unit consistency pass: duration goals now persist selected unit (`minutes` or `hours`) end-to-end, check-in labels/chips match that unit, and `check_ins.progress_unit` now accepts `hours` in schema constraint.
 
 ## Suggested Improvements (Backlog)
 - Backlog items are now tracked in `Next Suggested Steps -> Phase 8`.
