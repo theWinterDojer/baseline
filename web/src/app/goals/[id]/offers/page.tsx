@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { BASELINE_TAGLINE } from "@/lib/brand";
 import { getPresetLabel } from "@/lib/goalPresets";
+import { legacyMinCheckInsToMinimumProgress } from "@/lib/sponsorshipThreshold";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./offers.module.css";
 
@@ -295,49 +296,54 @@ export default function GoalOffersPage() {
                 <div className={styles.empty}>No offers yet.</div>
               ) : (
                 <div className={styles.list}>
-                  {pledges.map((pledge) => (
-                    <div key={pledge.id} className={styles.listItem}>
-                      <div className={styles.listHead}>
-                        <div className={styles.listAmount}>
-                          {formatMoney(pledge.amount_cents)}
+                  {pledges.map((pledge) => {
+                    const minimumProgress = legacyMinCheckInsToMinimumProgress(
+                      pledge.min_check_ins
+                    );
+                    return (
+                      <div key={pledge.id} className={styles.listItem}>
+                        <div className={styles.listHead}>
+                          <div className={styles.listAmount}>
+                            {formatMoney(pledge.amount_cents)}
+                          </div>
+                          <span className={styles.statusPill}>{pledge.status}</span>
                         </div>
-                        <span className={styles.statusPill}>{pledge.status}</span>
-                      </div>
-                      <div className={styles.listMeta}>
-                        Sponsor · Created {new Date(pledge.created_at).toLocaleDateString()}
-                      </div>
-                      <div className={styles.listMeta}>
-                        Status:{" "}
-                        {pledge.status === "settled" && !pledge.approval_at
-                          ? "settled (no response)"
-                          : pledge.status}
-                      </div>
-                      <div className={styles.listMeta}>
-                        Deadline {new Date(pledge.deadline_at).toLocaleDateString()}
-                      </div>
-                      {pledge.min_check_ins !== null ? (
                         <div className={styles.listMeta}>
-                          Minimum progress: {pledge.min_check_ins} {minProgressUnitLabel}
+                          Sponsor · Created {new Date(pledge.created_at).toLocaleDateString()}
                         </div>
-                      ) : null}
-                      <div className={styles.buttonRow}>
-                        <button
-                          className={styles.buttonPrimary}
-                          type="button"
-                          onClick={() => handleAccept(pledge.id)}
-                          disabled={
-                            pledge.status !== "offered" || acceptingId === pledge.id
-                          }
-                        >
-                          {pledge.status === "offered"
-                            ? acceptingId === pledge.id
-                              ? "Accepting..."
-                              : "Accept offer"
-                            : "Offer locked"}
-                        </button>
+                        <div className={styles.listMeta}>
+                          Status:{" "}
+                          {pledge.status === "settled" && !pledge.approval_at
+                            ? "settled (no response)"
+                            : pledge.status}
+                        </div>
+                        <div className={styles.listMeta}>
+                          Deadline {new Date(pledge.deadline_at).toLocaleDateString()}
+                        </div>
+                        {minimumProgress !== null ? (
+                          <div className={styles.listMeta}>
+                            Minimum progress: {minimumProgress} {minProgressUnitLabel}
+                          </div>
+                        ) : null}
+                        <div className={styles.buttonRow}>
+                          <button
+                            className={styles.buttonPrimary}
+                            type="button"
+                            onClick={() => handleAccept(pledge.id)}
+                            disabled={
+                              pledge.status !== "offered" || acceptingId === pledge.id
+                            }
+                          >
+                            {pledge.status === "offered"
+                              ? acceptingId === pledge.id
+                                ? "Accepting..."
+                                : "Accept offer"
+                              : "Offer locked"}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>

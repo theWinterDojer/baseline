@@ -14,6 +14,11 @@ import {
 import { cadenceCumulativeHint, cadenceLabel } from "@/lib/cadenceCopy";
 import { supabase } from "@/lib/supabaseClient";
 import { coerceGoalTags } from "@/lib/goalTags";
+import {
+  legacyMinCheckInsToMinimumProgress,
+  minimumProgressToLegacyMinCheckIns,
+  parseMinimumProgressInput,
+} from "@/lib/sponsorshipThreshold";
 import styles from "./publicGoal.module.css";
 
 type Goal = {
@@ -124,7 +129,7 @@ export default function PublicGoalPage() {
   );
   const [customAmount, setCustomAmount] = useState("");
   const [pledgeDeadline, setPledgeDeadline] = useState("");
-  const [minCheckIns, setMinCheckIns] = useState("");
+  const [minimumProgressInput, setMinimumProgressInput] = useState("");
   const [criteriaText, setCriteriaText] = useState("");
   const [pledgeError, setPledgeError] = useState<string | null>(null);
   const [pledgeMessage, setPledgeMessage] = useState<string | null>(null);
@@ -517,12 +522,14 @@ export default function PublicGoalPage() {
     }
 
     const deadlineISO = new Date(`${pledgeDeadline}T00:00:00`).toISOString();
-    const minCheckInsValue = minCheckIns ? Number(minCheckIns) : null;
+    const minimumProgressParse = parseMinimumProgressInput(minimumProgressInput);
 
-    if (minCheckInsValue !== null && (Number.isNaN(minCheckInsValue) || minCheckInsValue < 0)) {
+    if (!minimumProgressParse.valid) {
       setPledgeError("Minimum progress must be 0 or greater.");
       return;
     }
+
+    const minimumProgressValue = minimumProgressParse.value;
 
     setPledgeSubmitting(true);
 
@@ -533,7 +540,7 @@ export default function PublicGoalPage() {
         sponsor_id: session.user.id,
         amount_cents: Math.round(amountValue * 100),
         deadline_at: deadlineISO,
-        min_check_ins: minCheckInsValue,
+        min_check_ins: minimumProgressToLegacyMinCheckIns(minimumProgressValue),
         status: "offered",
       })
       .select("id")
@@ -568,7 +575,7 @@ export default function PublicGoalPage() {
     setPledgeAmountMode("preset");
     setCustomAmount("");
     setPledgeDeadline("");
-    setMinCheckIns("");
+    setMinimumProgressInput("");
     setCriteriaText("");
     await loadPublicSponsorData(goalId);
   };
@@ -692,6 +699,9 @@ export default function PublicGoalPage() {
                   </div>
                   <div className={styles.list}>
                     {publicSponsorPledges.map((pledge, index) => {
+                      const minimumProgress = legacyMinCheckInsToMinimumProgress(
+                        pledge.min_check_ins
+                      );
                       const criteria = criteriaByPledgeId.get(pledge.id) ?? [];
                       return (
                         <div key={pledge.id} className={styles.listItem}>
@@ -705,9 +715,9 @@ export default function PublicGoalPage() {
                               ? "settled (no response)"
                               : pledge.status}
                           </div>
-                          {pledge.min_check_ins !== null ? (
+                          {minimumProgress !== null ? (
                             <div className={styles.listMeta}>
-                              Minimum progress: {pledge.min_check_ins} {minProgressUnitLabel}
+                              Minimum progress: {minimumProgress} {minProgressUnitLabel}
                             </div>
                           ) : null}
                           <div className={styles.listMeta}>
@@ -791,8 +801,8 @@ export default function PublicGoalPage() {
                         min="0"
                         step="1"
                         className={styles.input}
-                        value={minCheckIns}
-                        onChange={(event) => setMinCheckIns(event.target.value)}
+                        value={minimumProgressInput}
+                        onChange={(event) => setMinimumProgressInput(event.target.value)}
                         placeholder="Optional"
                       />
                     </div>
@@ -844,6 +854,9 @@ export default function PublicGoalPage() {
                 ) : (
                   <div className={styles.list}>
                     {sponsorPledges.map((pledge) => {
+                      const minimumProgress = legacyMinCheckInsToMinimumProgress(
+                        pledge.min_check_ins
+                      );
                       const approvalExpired =
                         pledge.status === "settled" && !pledge.approval_at;
 
@@ -863,9 +876,9 @@ export default function PublicGoalPage() {
                               Approval window is open for 7 days after completion.
                             </div>
                           ) : null}
-                          {pledge.min_check_ins !== null ? (
+                          {minimumProgress !== null ? (
                             <div className={styles.listMeta}>
-                              Minimum progress: {pledge.min_check_ins} {minProgressUnitLabel}
+                              Minimum progress: {minimumProgress} {minProgressUnitLabel}
                             </div>
                           ) : null}
                           <div className={styles.buttonRow}>
