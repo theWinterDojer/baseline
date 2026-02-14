@@ -28,6 +28,7 @@ import {
   isWeightSnapshotPreset,
   toLegacyCompatibleGoalTrackingFields,
 } from "@/lib/goalTracking";
+import { parseGoalTagsInput } from "@/lib/goalTags";
 import styles from "./page.module.css";
 
 type Goal = {
@@ -146,6 +147,9 @@ const UNIT_GUIDANCE_BY_PRESET_KEY: Record<string, string> = {
   sleep_hours: "Log total sleep hours for the day.",
 };
 
+const isMissingGoalTagsColumnError = (message: string) =>
+  message.includes("tags") && message.includes("does not exist");
+
 export default function Home() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
@@ -165,6 +169,8 @@ export default function Home() {
     useState<DurationInputUnit>("minutes");
   const [goalForm, setGoalForm] = useState({
     title: "",
+    description: "",
+    tagsInput: "",
     modelType: "count" as Extract<GoalModelType, "count" | "time">,
     categoryKey: "",
     presetKey: "",
@@ -246,6 +252,14 @@ export default function Home() {
     () => parseStrictPositiveInteger(goalForm.cadenceTargetValue),
     [goalForm.cadenceTargetValue]
   );
+  const parsedGoalTags = useMemo(
+    () => parseGoalTagsInput(goalForm.tagsInput),
+    [goalForm.tagsInput]
+  );
+  const normalizedGoalDescription = useMemo(() => {
+    const trimmed = goalForm.description.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }, [goalForm.description]);
   const snapshotStartWeight = useMemo(
     () =>
       isSnapshotPresetSelected
@@ -757,6 +771,7 @@ export default function Home() {
     const legacyPayload = {
       user_id: session.user.id,
       title: goalForm.title.trim(),
+      description: normalizedGoalDescription,
       start_at: startISO,
       deadline_at: deadlineISO,
       model_type: goalForm.modelType,
@@ -784,6 +799,7 @@ export default function Home() {
       ...(isSnapshotPresetSelected && snapshotStartWeight !== null
         ? { start_snapshot_value: snapshotStartWeight }
         : {}),
+      tags: parsedGoalTags,
     };
 
     let { data: goalData, error } = await supabase
@@ -801,7 +817,18 @@ export default function Home() {
         .insert({
           ...legacyPayload,
           ...trackingFields,
+          tags: parsedGoalTags,
         })
+        .select("id")
+        .single());
+    }
+
+    if (error && isMissingGoalTagsColumnError(error.message)) {
+      const withoutTags = { ...goalInsertPayload } as Record<string, unknown>;
+      delete withoutTags.tags;
+      ({ data: goalData, error } = await supabase
+        .from("goals")
+        .insert(withoutTags)
         .select("id")
         .single());
     }
@@ -809,9 +836,20 @@ export default function Home() {
     if (error && isMissingGoalTrackingColumnsError(error.message)) {
       ({ data: goalData, error } = await supabase
         .from("goals")
-        .insert(legacyPayload)
+        .insert({
+          ...legacyPayload,
+          tags: parsedGoalTags,
+        })
         .select("id")
         .single());
+
+      if (error && isMissingGoalTagsColumnError(error.message)) {
+        ({ data: goalData, error } = await supabase
+          .from("goals")
+          .insert(legacyPayload)
+          .select("id")
+          .single());
+      }
     }
 
     if (error) {
@@ -827,6 +865,8 @@ export default function Home() {
         goalId: goalData.id,
         data: {
           title: goalForm.title.trim(),
+          description: normalizedGoalDescription,
+          tags: parsedGoalTags,
           modelType: goalForm.modelType,
           cadence: goalForm.cadence,
           goalCategory: goalForm.modelType === "count" ? goalForm.categoryKey : null,
@@ -842,6 +882,8 @@ export default function Home() {
 
       setGoalForm({
         title: "",
+        description: "",
+        tagsInput: "",
         modelType: "count",
         categoryKey: "",
         presetKey: "",
@@ -964,6 +1006,43 @@ export default function Home() {
                               }
                               placeholder="Read one hour every day this year"
                             />
+                          </div>
+                          <div className={styles.field}>
+                            <label className={styles.label} htmlFor="goal-description">
+                              Description (optional)
+                            </label>
+                            <textarea
+                              id="goal-description"
+                              className={styles.textarea}
+                              value={goalForm.description}
+                              onChange={(event) =>
+                                setGoalForm((current) => ({
+                                  ...current,
+                                  description: event.target.value,
+                                }))
+                              }
+                              placeholder="Add context so sponsors and supporters understand your goal."
+                            />
+                          </div>
+                          <div className={styles.field}>
+                            <label className={styles.label} htmlFor="goal-tags">
+                              Tags (optional)
+                            </label>
+                            <input
+                              id="goal-tags"
+                              className={styles.input}
+                              value={goalForm.tagsInput}
+                              onChange={(event) =>
+                                setGoalForm((current) => ({
+                                  ...current,
+                                  tagsInput: event.target.value,
+                                }))
+                              }
+                              placeholder="running, health, consistency"
+                            />
+                            <div className={styles.helper}>
+                              Use comma-separated tags to help discovery. Up to 8 tags.
+                            </div>
                           </div>
                         </>
                       ) : null}
@@ -1381,6 +1460,17 @@ export default function Home() {
                             <div className={styles.reviewSummary}>
                               {goalSummary ?? "Complete previous steps to generate summary."}
                             </div>
+                            {normalizedGoalDescription ? (
+                              <div className={styles.reviewSummary}>
+                                {normalizedGoalDescription}
+                              </div>
+                            ) : null}
+                            {parsedGoalTags.length > 0 ? (
+                              <div className={styles.reviewRow}>
+                                <span className={styles.reviewLabel}>Tags</span>
+                                <span>{parsedGoalTags.map((tag) => `#${tag}`).join(" ")}</span>
+                              </div>
+                            ) : null}
                             {isSnapshotPresetSelected ? (
                               <div className={styles.inlineNote}>
                                 You will log your current weight each check-in. Progress uses your

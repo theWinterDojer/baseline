@@ -24,6 +24,7 @@ order by table_name;
 with required_columns(table_name, column_name) as (
   values
     ('goals', 'completed_at'),
+    ('goals', 'description'),
     ('goals', 'check_in_count'),
     ('goals', 'goal_type'),
     ('goals', 'cadence'),
@@ -37,6 +38,7 @@ with required_columns(table_name, column_name) as (
     ('goals', 'commitment_tx_hash'),
     ('goals', 'commitment_chain_id'),
     ('goals', 'commitment_created_at'),
+    ('goals', 'tags'),
     ('check_ins', 'progress_value'),
     ('check_ins', 'progress_snapshot_value'),
     ('check_ins', 'progress_unit'),

@@ -250,7 +250,8 @@ alter table public.goals
   add column if not exists commitment_tx_hash text,
   add column if not exists commitment_chain_id integer,
   add column if not exists commitment_created_at timestamptz,
-  add column if not exists check_in_count integer not null default 0;
+  add column if not exists check_in_count integer not null default 0,
+  add column if not exists tags text[] not null default '{}';
 
 do $$
 begin
