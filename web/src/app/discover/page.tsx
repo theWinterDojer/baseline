@@ -10,14 +10,12 @@ import {
   isMissingGoalTrackingColumnsError,
   isWeightSnapshotPreset,
 } from "@/lib/goalTracking";
-import { coerceGoalTags, goalMatchesTagFilter } from "@/lib/goalTags";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./discover.module.css";
 
 type GoalSummary = {
   id: string;
   title: string;
-  description: string | null;
   deadline_at: string;
   created_at: string;
   model_type: GoalModelType;
@@ -29,7 +27,6 @@ type GoalSummary = {
   target_value: number | null;
   target_unit: string | null;
   check_in_count: number;
-  tags: string[];
 };
 
 type DiscoveryRow = {
@@ -43,9 +40,7 @@ type DiscoveryRow = {
   goals: GoalSummary | null;
 };
 
-type RawGoalSummary = Omit<GoalSummary, "tags"> & {
-  tags?: unknown;
-};
+type RawGoalSummary = GoalSummary;
 
 type RawDiscoveryRow = Omit<DiscoveryRow, "goals"> & {
   goals: RawGoalSummary | RawGoalSummary[] | null;
@@ -57,10 +52,7 @@ const toGoalSummary = (
   if (!goal) return null;
   const resolved = Array.isArray(goal) ? (goal[0] ?? null) : goal;
   if (!resolved) return null;
-  return {
-    ...resolved,
-    tags: coerceGoalTags(resolved.tags),
-  };
+  return resolved;
 };
 
 const normalizeDiscoveryRows = (data: RawDiscoveryRow[]): DiscoveryRow[] =>
@@ -70,21 +62,13 @@ const normalizeDiscoveryRows = (data: RawDiscoveryRow[]): DiscoveryRow[] =>
   }));
 
 const selectGoalsWithTracking =
-  "id,title,description,tags,deadline_at,created_at,model_type,goal_type,cadence,count_unit_preset,total_target_value,total_progress_value,target_value,target_unit,check_in_count";
-const selectGoalsWithTrackingWithoutTags =
-  "id,title,description,deadline_at,created_at,model_type,goal_type,cadence,count_unit_preset,total_target_value,total_progress_value,target_value,target_unit,check_in_count";
+  "id,title,deadline_at,created_at,model_type,goal_type,cadence,count_unit_preset,total_target_value,total_progress_value,target_value,target_unit,check_in_count";
 const selectGoalsLegacy =
-  "id,title,description,tags,deadline_at,created_at,model_type,target_value,target_unit,check_in_count";
-const selectGoalsLegacyWithoutTags =
-  "id,title,description,deadline_at,created_at,model_type,target_value,target_unit,check_in_count";
-
-const isMissingGoalTagsColumnError = (message: string) =>
-  message.includes("tags") && message.includes("does not exist");
+  "id,title,deadline_at,created_at,model_type,target_value,target_unit,check_in_count";
 
 const normalizeGoalSummaryRows = (data: RawGoalSummary[]): GoalSummary[] =>
   data.map((goal) => ({
     ...goal,
-    tags: coerceGoalTags(goal.tags),
   }));
 
 const progressRatio = (
@@ -121,7 +105,6 @@ type ViewId = (typeof views)[number]["id"];
 export default function DiscoverPage() {
   const [activeView, setActiveView] = useState<ViewId>("trending");
   const [rows, setRows] = useState<DiscoveryRow[]>([]);
-  const [tagFilterInput, setTagFilterInput] = useState("");
   const [deadlineWindowFilter, setDeadlineWindowFilter] = useState<
     "any" | "30d" | "90d" | "year"
   >("any");
@@ -171,27 +154,8 @@ export default function DiscoverPage() {
         return normalizeDiscoveryRows((rankedTracking.data ?? []) as RawDiscoveryRow[]);
       }
 
-      if (
-        !isMissingGoalTrackingColumnsError(rankedTracking.error.message) &&
-        !isMissingGoalTagsColumnError(rankedTracking.error.message)
-      ) {
+      if (!isMissingGoalTrackingColumnsError(rankedTracking.error.message)) {
         throw rankedTracking.error;
-      }
-
-      const rankedTrackingWithoutTags = await supabase
-        .from("discovery_rankings")
-        .select(
-          `goal_id,score,total_sponsored_cents,recent_sponsored_cents_7d,comment_count_7d,verified_sponsor_count,updated_at,goals(${selectGoalsWithTrackingWithoutTags})`
-        )
-        .order(orderBy, { ascending: false })
-        .limit(50);
-
-      if (!rankedTrackingWithoutTags.error) {
-        return normalizeDiscoveryRows((rankedTrackingWithoutTags.data ?? []) as RawDiscoveryRow[]);
-      }
-
-      if (!isMissingGoalTrackingColumnsError(rankedTrackingWithoutTags.error.message)) {
-        throw rankedTrackingWithoutTags.error;
       }
 
       const rankedLegacy = await supabase
@@ -206,20 +170,7 @@ export default function DiscoverPage() {
         return normalizeDiscoveryRows((rankedLegacy.data ?? []) as RawDiscoveryRow[]);
       }
 
-      if (!isMissingGoalTagsColumnError(rankedLegacy.error.message)) {
-        throw rankedLegacy.error;
-      }
-
-      const rankedLegacyWithoutTags = await supabase
-        .from("discovery_rankings")
-        .select(
-          `goal_id,score,total_sponsored_cents,recent_sponsored_cents_7d,comment_count_7d,verified_sponsor_count,updated_at,goals(${selectGoalsLegacyWithoutTags})`
-        )
-        .order(orderBy, { ascending: false })
-        .limit(50);
-
-      if (rankedLegacyWithoutTags.error) throw rankedLegacyWithoutTags.error;
-      return normalizeDiscoveryRows((rankedLegacyWithoutTags.data ?? []) as RawDiscoveryRow[]);
+      throw rankedLegacy.error;
     },
     []
   );
@@ -236,28 +187,8 @@ export default function DiscoverPage() {
       return normalizeGoalSummaryRows((withTracking.data ?? []) as RawGoalSummary[]);
     }
 
-    if (
-      !isMissingGoalTrackingColumnsError(withTracking.error.message) &&
-      !isMissingGoalTagsColumnError(withTracking.error.message)
-    ) {
+    if (!isMissingGoalTrackingColumnsError(withTracking.error.message)) {
       throw withTracking.error;
-    }
-
-    const withTrackingWithoutTags = await supabase
-      .from("goals")
-      .select(selectGoalsWithTrackingWithoutTags)
-      .eq("privacy", "public")
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    if (!withTrackingWithoutTags.error) {
-      return normalizeGoalSummaryRows(
-        (withTrackingWithoutTags.data ?? []) as RawGoalSummary[]
-      );
-    }
-
-    if (!isMissingGoalTrackingColumnsError(withTrackingWithoutTags.error.message)) {
-      throw withTrackingWithoutTags.error;
     }
 
     const legacy = await supabase
@@ -271,19 +202,7 @@ export default function DiscoverPage() {
       return normalizeGoalSummaryRows((legacy.data ?? []) as RawGoalSummary[]);
     }
 
-    if (!isMissingGoalTagsColumnError(legacy.error.message)) {
-      throw legacy.error;
-    }
-
-    const legacyWithoutTags = await supabase
-      .from("goals")
-      .select(selectGoalsLegacyWithoutTags)
-      .eq("privacy", "public")
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    if (legacyWithoutTags.error) throw legacyWithoutTags.error;
-    return normalizeGoalSummaryRows((legacyWithoutTags.data ?? []) as RawGoalSummary[]);
+    throw legacy.error;
   }, []);
 
   const loadTrending = useCallback(
@@ -430,10 +349,6 @@ export default function DiscoverPage() {
       const goal = row.goals;
       if (!goal) return false;
 
-      if (!goalMatchesTagFilter(goal.tags, tagFilterInput)) {
-        return false;
-      }
-
       if (maxDeadlineMs !== null) {
         const deadlineMs = new Date(goal.deadline_at).getTime();
         if (Number.isNaN(deadlineMs) || deadlineMs < nowMs || deadlineMs > maxDeadlineMs) {
@@ -450,7 +365,7 @@ export default function DiscoverPage() {
 
       return true;
     });
-  }, [amountFilter, deadlineWindowFilter, rows, tagFilterInput]);
+  }, [amountFilter, deadlineWindowFilter, rows]);
 
   return (
     <div className={styles.page}>
@@ -485,18 +400,6 @@ export default function DiscoverPage() {
             ))}
           </div>
           <div className={styles.filterRow}>
-            <div className={styles.filterField}>
-              <label className={styles.filterLabel} htmlFor="discover-tag-filter">
-                Tag
-              </label>
-              <input
-                id="discover-tag-filter"
-                className={styles.filterInput}
-                value={tagFilterInput}
-                onChange={(event) => setTagFilterInput(event.target.value)}
-                placeholder="running"
-              />
-            </div>
             <div className={styles.filterField}>
               <label className={styles.filterLabel} htmlFor="discover-deadline-window">
                 Deadline window
@@ -575,9 +478,6 @@ export default function DiscoverPage() {
                     className={styles.listItem}
                   >
                     <div className={styles.listTitle}>{goal.title}</div>
-                    {goal.description ? (
-                      <div className={styles.listDescription}>{goal.description}</div>
-                    ) : null}
                     <div className={styles.listMeta}>
                       <span className={styles.pill}>{goal.model_type}</span>
                       <span className={styles.pill}>
@@ -597,11 +497,6 @@ export default function DiscoverPage() {
                           ${Math.round(row.total_sponsored_cents / 100)} sponsored
                         </span>
                       ) : null}
-                      {goal.tags.slice(0, 4).map((tag) => (
-                        <span key={`${goal.id}-${tag}`} className={styles.pill}>
-                          #{tag}
-                        </span>
-                      ))}
                     </div>
                   </Link>
                 );

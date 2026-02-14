@@ -14,7 +14,6 @@ import {
 } from "@/lib/goalTracking";
 import { cadenceCumulativeHint, cadenceLabel } from "@/lib/cadenceCopy";
 import { supabase } from "@/lib/supabaseClient";
-import { coerceGoalTags } from "@/lib/goalTags";
 import {
   legacyMinCheckInsToMinimumProgress,
   minimumProgressToLegacyMinCheckIns,
@@ -26,8 +25,6 @@ type Goal = {
   id: string;
   user_id: string;
   title: string;
-  description: string | null;
-  tags: string[];
   start_at: string | null;
   completed_at: string | null;
   deadline_at: string;
@@ -147,7 +144,6 @@ export default function PublicGoalPage() {
 
   const isDurationGoal =
     goal?.goal_type === "duration" || goal?.model_type === "time";
-  const goalTags = useMemo(() => coerceGoalTags(goal?.tags), [goal?.tags]);
   const isWeightSnapshotGoal = isWeightSnapshotPreset(goal?.count_unit_preset);
   const goalUnitLabel =
     (isWeightSnapshotGoal
@@ -693,9 +689,6 @@ export default function PublicGoalPage() {
           <>
             <section className={styles.card}>
               <div className={styles.title}>{goal.title}</div>
-              {goal.description ? (
-                <div className={styles.description}>{goal.description}</div>
-              ) : null}
               <div className={styles.metaRow}>
                 <span className={styles.pill}>{goal.model_type}</span>
                 <span className={styles.pill}>
@@ -730,11 +723,6 @@ export default function PublicGoalPage() {
                 {goal.commitment_chain_id ? (
                   <span className={styles.pill}>Chain {goal.commitment_chain_id}</span>
                 ) : null}
-                {goalTags.map((tag) => (
-                  <span key={tag} className={styles.pill}>
-                    #{tag}
-                  </span>
-                ))}
               </div>
               <div className={styles.progressWrap}>
                 <div className={styles.progressBar}>

@@ -31,7 +31,6 @@ import {
 } from "@/lib/goalTracking";
 import { cadenceCumulativeHint } from "@/lib/cadenceCopy";
 import { getPresetLabel } from "@/lib/goalPresets";
-import { coerceGoalTags, formatGoalTagsInput, parseGoalTagsInput } from "@/lib/goalTags";
 import styles from "./goal.module.css";
 
 type Goal = {
@@ -39,7 +38,6 @@ type Goal = {
   user_id: string;
   title: string;
   description: string | null;
-  tags: string[];
   start_at: string | null;
   completed_at: string | null;
   deadline_at: string;
@@ -106,9 +104,6 @@ const isMissingCheckInProgressColumnsError = (message: string) =>
   ["progress_value", "progress_snapshot_value", "progress_unit"].some((column) =>
     message.includes(column)
   );
-const isMissingGoalTagsColumnError = (message: string) =>
-  message.includes("tags") && message.includes("does not exist");
-
 const CHECK_IN_IMAGES_BUCKET = "checkin-images";
 const MAX_CHECK_IN_IMAGE_BYTES = 8 * 1024 * 1024;
 const BASE_MAINNET_CHAIN_ID = 8453;
@@ -259,8 +254,6 @@ const toEditForm = (nextGoal: Goal) => {
 
   return {
     title: nextGoal.title ?? "",
-    description: nextGoal.description ?? "",
-    tagsInput: formatGoalTagsInput(nextGoal.tags),
     hasStartDate: Boolean(nextGoal.start_at),
     startDate: formatDateInput(nextGoal.start_at),
     deadline: formatDateInput(nextGoal.deadline_at),
@@ -304,8 +297,6 @@ export default function GoalPage() {
   const [nftMinting, setNftMinting] = useState(false);
   const [editForm, setEditForm] = useState({
     title: "",
-    description: "",
-    tagsInput: "",
     hasStartDate: false,
     startDate: "",
     deadline: "",
@@ -367,8 +358,6 @@ export default function GoalPage() {
         : `Set the ${durationTrackingUnit} target for each cadence period.`
       : `Measured in ${goalUnitLabel}.`;
   const cadenceRollupHint = cadenceCumulativeHint(goal?.cadence);
-  const goalTags = useMemo(() => coerceGoalTags(goal?.tags), [goal?.tags]);
-
   const snapshotProgressRange = useMemo(() => {
     if (!isWeightSnapshotGoal) return null;
     let earliest: { value: number; time: number } | null = null;
@@ -1396,8 +1385,6 @@ export default function GoalPage() {
         ? goal.target_unit ?? null
         : editForm.targetUnit.trim() || null
       : null;
-    const normalizedDescription = editForm.description.trim() || null;
-    const parsedTags = parseGoalTagsInput(editForm.tagsInput);
 
     const startISO =
       (isSchemaTrackingGoal || editForm.hasStartDate) && editForm.startDate
@@ -1411,8 +1398,6 @@ export default function GoalPage() {
 
     const legacyPayload = {
       title: editForm.title.trim(),
-      description: normalizedDescription,
-      tags: parsedTags,
       start_at: startISO,
       deadline_at: deadlineISO,
       model_type: isSchemaTrackingGoal ? goal.model_type : editForm.modelType,
@@ -1450,31 +1435,6 @@ export default function GoalPage() {
       ({ data, error: updateError } = await supabase
         .from("goals")
         .update(legacyPayload)
-        .eq("id", goal.id)
-        .select("*")
-        .single());
-    }
-
-    if (updateError && isMissingGoalTagsColumnError(updateError.message)) {
-      const withoutTags = { ...legacyPayload } as Record<string, unknown>;
-      delete withoutTags.tags;
-      ({ data, error: updateError } = await supabase
-        .from("goals")
-        .update({
-          ...withoutTags,
-          ...trackingPatch,
-        })
-        .eq("id", goal.id)
-        .select("*")
-        .single());
-    }
-
-    if (updateError && isMissingGoalTrackingColumnsError(updateError.message)) {
-      const withoutTags = { ...legacyPayload } as Record<string, unknown>;
-      delete withoutTags.tags;
-      ({ data, error: updateError } = await supabase
-        .from("goals")
-        .update(withoutTags)
         .eq("id", goal.id)
         .select("*")
         .single());
@@ -1526,9 +1486,6 @@ export default function GoalPage() {
           <>
             <section className={styles.card}>
               <div className={styles.title}>{goal.title}</div>
-              {goal.description ? (
-                <div className={styles.description}>{goal.description}</div>
-              ) : null}
               <div className={styles.metaRow}>
                 <span className={styles.pill}>{goal.privacy}</span>
                 <span className={styles.pill}>{goal.status}</span>
@@ -1556,11 +1513,6 @@ export default function GoalPage() {
                 {goal.commitment_chain_id ? (
                   <span className={styles.pill}>Chain {goal.commitment_chain_id}</span>
                 ) : null}
-                {goalTags.map((tag) => (
-                  <span key={tag} className={styles.pill}>
-                    #{tag}
-                  </span>
-                ))}
               </div>
               <div className={styles.progressWrap}>
                 <div className={styles.progressBar}>
@@ -1708,43 +1660,6 @@ export default function GoalPage() {
                         }
                         placeholder="Run 12 miles by April"
                       />
-                    </div>
-                    <div className={styles.field}>
-                      <label className={styles.label} htmlFor="edit-description">
-                        Description (optional)
-                      </label>
-                      <textarea
-                        id="edit-description"
-                        className={styles.textarea}
-                        value={editForm.description}
-                        onChange={(event) =>
-                          setEditForm((current) => ({
-                            ...current,
-                            description: event.target.value,
-                          }))
-                        }
-                        placeholder="Add context so this goal is clear to you and supporters."
-                      />
-                    </div>
-                    <div className={styles.field}>
-                      <label className={styles.label} htmlFor="edit-tags">
-                        Tags (optional)
-                      </label>
-                      <input
-                        id="edit-tags"
-                        className={styles.input}
-                        value={editForm.tagsInput}
-                        onChange={(event) =>
-                          setEditForm((current) => ({
-                            ...current,
-                            tagsInput: event.target.value,
-                          }))
-                        }
-                        placeholder="running, health, consistency"
-                      />
-                      <div className={styles.helperText}>
-                        Comma-separated tags, up to 8.
-                      </div>
                     </div>
 
                     <div className={styles.row}>

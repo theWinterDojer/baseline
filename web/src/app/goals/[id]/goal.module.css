@@ -132,12 +132,6 @@
   color: #1f1b16;
 }
 
-.description {
-  font-size: 15px;
-  color: #4f4639;
-  line-height: 1.5;
-}
-
 .metaRow {
   display: flex;
   flex-wrap: wrap;
