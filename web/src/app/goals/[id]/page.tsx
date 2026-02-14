@@ -10,7 +10,7 @@ import {
   type FormEvent,
 } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { base } from "viem/chains";
 import { keccak256, toBytes, type Address, type Hex } from "viem";
@@ -272,6 +272,7 @@ const toEditForm = (nextGoal: Goal) => {
 
 export default function GoalPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const goalId = params?.id;
   const { address: connectedAddress } = useAccount();
   const { data: walletClient } = useWalletClient();
@@ -315,6 +316,8 @@ export default function GoalPage() {
   const [editError, setEditError] = useState<string | null>(null);
   const [editMessage, setEditMessage] = useState<string | null>(null);
   const [editUpdating, setEditUpdating] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteUpdating, setDeleteUpdating] = useState(false);
   const checkInImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const walletAddress = session?.user?.user_metadata?.wallet_address as
@@ -432,6 +435,13 @@ export default function GoalPage() {
   ]);
 
   const isOwner = Boolean(session?.user?.id && goal?.user_id === session.user.id);
+  const deleteLockReason = !goal
+    ? null
+    : goal.privacy !== "private"
+      ? "Make this goal private before deleting."
+      : pledgeCount > 0
+        ? "This goal has pledges and can’t be deleted."
+        : null;
 
   const clearCheckInImageSelection = useCallback(() => {
     if (checkInImagePreviewUrl) {
@@ -1253,6 +1263,61 @@ export default function GoalPage() {
     setNftMinting(false);
   };
 
+  const handleDeleteGoal = async () => {
+    setDeleteError(null);
+
+    if (!goal || !session?.user?.id) {
+      setDeleteError("Sign in to delete this goal.");
+      return;
+    }
+
+    if (goal.privacy !== "private") {
+      setDeleteError("Make this goal private before deleting.");
+      return;
+    }
+
+    if (pledgeCount > 0) {
+      setDeleteError("This goal has pledges and can’t be deleted.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete "${goal.title}"? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeleteUpdating(true);
+
+    const { error: goalDeleteError } = await supabase
+      .from("goals")
+      .delete()
+      .eq("id", goal.id)
+      .eq("user_id", session.user.id);
+
+    if (goalDeleteError) {
+      setDeleteError(goalDeleteError.message);
+      setDeleteUpdating(false);
+      return;
+    }
+
+    const { error: eventError } = await logEvent({
+      eventType: "goal.deleted",
+      actorId: session.user.id,
+      recipientId: session.user.id,
+      goalId: goal.id,
+      data: {
+        title: goal.title,
+      },
+    });
+
+    if (eventError) {
+      console.warn("Failed to log goal.deleted event", eventError);
+    }
+
+    router.push("/");
+    router.refresh();
+  };
+
   const handleUpdateGoal = async (event: FormEvent) => {
     event.preventDefault();
     setEditError(null);
@@ -2002,6 +2067,27 @@ export default function GoalPage() {
                 {nftMessage ? (
                   <div className={`${styles.message} ${styles.success}`}>{nftMessage}</div>
                 ) : null}
+              </section>
+            ) : null}
+
+            {isOwner ? (
+              <section className={styles.card}>
+                <div className={styles.sectionTitle}>Delete goal</div>
+                <div className={styles.notice}>
+                  Deleting permanently removes this goal and its check-ins.
+                </div>
+                {deleteLockReason ? <div className={styles.notice}>{deleteLockReason}</div> : null}
+                {deleteError ? <div className={styles.message}>{deleteError}</div> : null}
+                <div className={styles.buttonRow}>
+                  <button
+                    className={styles.buttonDanger}
+                    type="button"
+                    onClick={handleDeleteGoal}
+                    disabled={Boolean(deleteLockReason) || deleteUpdating}
+                  >
+                    {deleteUpdating ? "Deleting..." : "Delete goal"}
+                  </button>
+                </div>
               </section>
             ) : null}
 
