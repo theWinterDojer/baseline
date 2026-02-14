@@ -21,6 +21,7 @@ import {
   GOAL_PRESET_CATEGORIES,
   getPresetLabel,
 } from "@/lib/goalPresets";
+import { cadenceCumulativeHint, cadenceLabel } from "@/lib/cadenceCopy";
 import {
   type GoalCadence,
   isMissingGoalTrackingColumnsError,
@@ -60,12 +61,12 @@ const CADENCE_OPTIONS: Array<{
   {
     value: "daily",
     title: "Daily",
-    description: "Set a target you want to hit each day.",
+    description: "Set a target per day; progress rolls up cumulatively to deadline.",
   },
   {
     value: "weekly",
     title: "Weekly",
-    description: "Set a target you want to hit each week.",
+    description: "Set a target per week; progress rolls up cumulatively to deadline.",
   },
   {
     value: "by_deadline",
@@ -176,6 +177,7 @@ export default function Home() {
   const [goalError, setGoalError] = useState<string | null>(null);
   const [goalMessage, setGoalMessage] = useState<string | null>(null);
   const wizardHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const goalFeedbackRef = useRef<HTMLDivElement | null>(null);
 
   const walletAddress =
     (session?.user?.user_metadata?.wallet_address as string | undefined) ??
@@ -282,6 +284,7 @@ export default function Home() {
   }, [cadenceOccurrences, cadenceTargetStorageValue]);
 
   const durationUnitLabel = durationInputUnit === "hours" ? "hours" : "minutes";
+  const cadenceRollupHint = cadenceCumulativeHint(goalForm.cadence);
 
   const goalUnitLabel =
     goalForm.modelType === "time"
@@ -428,6 +431,11 @@ export default function Home() {
   useEffect(() => {
     wizardHeadingRef.current?.focus();
   }, [wizardCardKey]);
+
+  useEffect(() => {
+    if (!goalError) return;
+    goalFeedbackRef.current?.focus();
+  }, [goalError]);
 
   const loadGoals = async (activeSession: Session | null) => {
     if (!activeSession) return;
@@ -645,6 +653,15 @@ export default function Home() {
     setGoalWizardStep((current) =>
       Math.min(current + 1, WIZARD_STEPS.length - 1)
     );
+  };
+
+  const handleWizardSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (goalWizardStep < WIZARD_STEPS.length - 1) {
+      handleWizardContinue();
+      return;
+    }
+    void handleCreateGoal();
   };
 
   const handleCreateGoal = async () => {
@@ -891,22 +908,26 @@ export default function Home() {
             ) : (
               <>
                 <h1 className={styles.panelHeading}>Create your first goal</h1>
-                <form
-                  className={styles.wizard}
-                  onSubmit={(event: FormEvent) => event.preventDefault()}
-                >
+                <form className={styles.wizard} onSubmit={handleWizardSubmit}>
                   <div className={styles.wizardPanel}>
                     <div className={styles.wizardProgressHeader}>
                       <div className={styles.wizardStepTag}>
                         Step {goalWizardStep + 1} of {WIZARD_STEPS.length}
                       </div>
-                      <div className={styles.wizardProgressTrack} aria-hidden="true">
+                      <div
+                        className={styles.wizardProgressTrack}
+                        role="progressbar"
+                        aria-label="Goal setup progress"
+                        aria-valuemin={1}
+                        aria-valuemax={WIZARD_STEPS.length}
+                        aria-valuenow={goalWizardStep + 1}
+                      >
                         <div
                           className={styles.wizardProgressFill}
                           style={{ width: `${wizardProgressPercent}%` }}
                         />
                       </div>
-                      <div className={styles.wizardStepLabel}>
+                      <div className={styles.wizardStepLabel} aria-live="polite">
                         {WIZARD_STEPS[goalWizardStep]}
                       </div>
                     </div>
@@ -1079,7 +1100,7 @@ export default function Home() {
                           <p className={styles.wizardSubheading}>
                             {isSnapshotPresetSelected
                               ? "Set your current weight and your goal weight."
-                              : "Choose cadence, then define the target for that cadence."}
+                              : "Choose cadence, then define your target. Daily/weekly targets are tracked cumulatively to your deadline."}
                           </p>
                           {!isSnapshotPresetSelected ? (
                             <div className={styles.optionGrid}>
@@ -1234,6 +1255,8 @@ export default function Home() {
                                   You will log current weight in check-ins. Progress compares
                                   current vs goal from this starting weight.
                                 </div>
+                              ) : cadenceRollupHint ? (
+                                <div className={styles.helper}>{cadenceRollupHint}</div>
                               ) : null}
                             </>
                           )}
@@ -1338,7 +1361,10 @@ export default function Home() {
                             ) : null}
                             <div className={styles.reviewRow}>
                               <span className={styles.reviewLabel}>Cadence</span>
-                              <span>{goalForm.cadence.replace("_", " ")}</span>
+                              <span>
+                                {cadenceLabel(goalForm.cadence)}
+                                {cadenceRollupHint ? " (cumulative to deadline)" : ""}
+                              </span>
                             </div>
                             <div className={styles.reviewRow}>
                               <span className={styles.reviewLabel}>
@@ -1366,9 +1392,24 @@ export default function Home() {
                       ) : null}
                     </div>
 
-                    {goalError ? <div className={styles.message}>{goalError}</div> : null}
+                    {goalError ? (
+                      <div
+                        ref={goalFeedbackRef}
+                        className={styles.message}
+                        role="alert"
+                        tabIndex={-1}
+                      >
+                        {goalError}
+                      </div>
+                    ) : null}
                     {goalMessage ? (
-                      <div className={`${styles.message} ${styles.success}`}>{goalMessage}</div>
+                      <div
+                        className={`${styles.message} ${styles.success}`}
+                        role="status"
+                        aria-live="polite"
+                      >
+                        {goalMessage}
+                      </div>
                     ) : null}
 
                     <div className={`${styles.buttonRow} ${styles.wizardActions}`}>
@@ -1382,9 +1423,8 @@ export default function Home() {
                       </button>
                       {goalWizardStep < WIZARD_STEPS.length - 1 ? (
                         <button
-                          type="button"
+                          type="submit"
                           className={styles.buttonPrimary}
-                          onClick={handleWizardContinue}
                           disabled={!isCurrentStepValid}
                         >
                           Continue
@@ -1392,10 +1432,7 @@ export default function Home() {
                       ) : (
                         <button
                           className={styles.buttonPrimary}
-                          type="button"
-                          onClick={() => {
-                            void handleCreateGoal();
-                          }}
+                          type="submit"
                           disabled={!isCurrentStepValid}
                         >
                           Save goal

@@ -29,6 +29,7 @@ import {
   isMissingGoalTrackingColumnsError,
   isWeightSnapshotPreset,
 } from "@/lib/goalTracking";
+import { cadenceCumulativeHint } from "@/lib/cadenceCopy";
 import { getPresetLabel } from "@/lib/goalPresets";
 import styles from "./goal.module.css";
 
@@ -354,6 +355,7 @@ export default function GoalPage() {
         ? `Set the total ${durationTrackingUnit} to complete by the deadline.`
         : `Set the ${durationTrackingUnit} target for each cadence period.`
       : `Measured in ${goalUnitLabel}.`;
+  const cadenceRollupHint = cadenceCumulativeHint(goal?.cadence);
 
   const snapshotProgressRange = useMemo(() => {
     if (!isWeightSnapshotGoal) return null;
@@ -1460,7 +1462,9 @@ export default function GoalPage() {
                   {progressTargetValue
                     ? isWeightSnapshotGoal
                       ? `${progressPercent}% to goal weight ${formatMetricValue(progressTargetValue)}`
-                      : `${progressPercent}% of ${progressTargetValue} ${goalUnitLabel}`
+                      : `${progressPercent}% of ${progressTargetValue} ${goalUnitLabel}${
+                          cadenceRollupHint ? " (cumulative target)" : ""
+                        }`
                     : "Target not set yet"}
                 </div>
                 {progressTargetValue && progressCurrentValue !== null ? (
@@ -1473,6 +1477,9 @@ export default function GoalPage() {
                         }`
                       : `Logged: ${progressCurrentValue} ${goalUnitLabel}`}
                   </div>
+                ) : null}
+                {!isWeightSnapshotGoal && cadenceRollupHint ? (
+                  <div className={styles.helperText}>{cadenceRollupHint}</div>
                 ) : null}
               </div>
             </section>
@@ -1745,7 +1752,12 @@ export default function GoalPage() {
                                 }
                                 placeholder="170"
                               />
-                              <div className={styles.helperText}>{schemaTargetHelper}</div>
+                              <div className={styles.helperText}>
+                                {schemaTargetHelper}
+                                {!isWeightSnapshotGoal && cadenceRollupHint
+                                  ? ` ${cadenceRollupHint}`
+                                  : ""}
+                              </div>
                             </div>
                           </div>
                         ) : (
@@ -1769,7 +1781,12 @@ export default function GoalPage() {
                                 }
                                 placeholder={goal.cadence === "by_deadline" ? "30" : "5"}
                               />
-                              <div className={styles.helperText}>{schemaTargetHelper}</div>
+                              <div className={styles.helperText}>
+                                {schemaTargetHelper}
+                                {!isWeightSnapshotGoal && cadenceRollupHint
+                                  ? ` ${cadenceRollupHint}`
+                                  : ""}
+                              </div>
                             </div>
                           </div>
                         )}

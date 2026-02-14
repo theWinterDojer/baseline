@@ -505,8 +505,8 @@
 }
 
 .tooltipTrigger {
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   border-radius: 999px;
   border: 1px solid rgba(90, 61, 43, 0.18);
   background: rgba(255, 236, 180, 0.35);
@@ -576,6 +576,16 @@
   color: #1b1a17;
 }
 
+.input:focus-visible,
+.select:focus-visible,
+.textarea:focus-visible,
+.buttonPrimary:focus-visible,
+.buttonGhost:focus-visible,
+.message:focus-visible {
+  outline: 2px solid rgba(229, 119, 30, 0.45);
+  outline-offset: 2px;
+}
+
 .textarea {
   min-height: 90px;
   resize: vertical;
@@ -598,7 +608,7 @@
   color: #f8f1e4;
   border: none;
   border-radius: 999px;
-  height: 38px;
+  min-height: 44px;
   padding: 0 18px;
   font-weight: 500;
   font-size: 14px;
@@ -620,7 +630,7 @@
   color: var(--retro-cocoa);
   border: 1px solid rgba(90, 61, 43, 0.5);
   border-radius: 999px;
-  height: 38px;
+  min-height: 44px;
   padding: 0 18px;
   font-weight: 500;
   font-size: 14px;
@@ -788,12 +798,17 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .header,
+  .panel,
   .wizardCardForward,
   .wizardCardBackward,
   .staggerReveal,
   .optionCardSelected,
   .categoryCardSelected,
-  .presetChipSelected {
+  .presetChipSelected,
+  .delay1,
+  .delay2,
+  .delay3 {
     animation: none;
   }
 
@@ -802,11 +817,20 @@
   }
 
   .wizardProgressFill,
+  .goalCard,
   .optionCard,
   .categoryCard,
   .presetChip,
-  .buttonPrimary {
+  .buttonPrimary,
+  .buttonGhost {
     transition: none;
+  }
+
+  .optionCard:hover,
+  .goalCard:hover,
+  .buttonPrimary:hover {
+    transform: none;
+    box-shadow: none;
   }
 }
 
@@ -852,6 +876,15 @@
     padding: 14px;
   }
 
+  .wizardActions .buttonGhost,
+  .wizardActions .buttonPrimary {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .footerNote {
+    width: 100%;
+  }
 }
 
 @media (max-width: 480px) {

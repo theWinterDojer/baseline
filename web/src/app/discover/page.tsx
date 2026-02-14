@@ -5,6 +5,7 @@ import Link from "next/link";
 import { BASELINE_TAGLINE } from "@/lib/brand";
 import type { GoalModelType } from "@/lib/goalTypes";
 import { getPresetLabel } from "@/lib/goalPresets";
+import { cadenceCumulativeTag } from "@/lib/cadenceCopy";
 import {
   isMissingGoalTrackingColumnsError,
   isWeightSnapshotPreset,
@@ -20,6 +21,7 @@ type GoalSummary = {
   created_at: string;
   model_type: GoalModelType;
   goal_type: "count" | "duration" | null;
+  cadence: "daily" | "weekly" | "by_deadline" | null;
   count_unit_preset: string | null;
   total_target_value: number | null;
   total_progress_value: number;
@@ -57,7 +59,7 @@ const normalizeDiscoveryRows = (data: RawDiscoveryRow[]): DiscoveryRow[] =>
   }));
 
 const selectGoalsWithTracking =
-  "id,title,description,deadline_at,created_at,model_type,goal_type,count_unit_preset,total_target_value,total_progress_value,target_value,target_unit,check_in_count";
+  "id,title,description,deadline_at,created_at,model_type,goal_type,cadence,count_unit_preset,total_target_value,total_progress_value,target_value,target_unit,check_in_count";
 const selectGoalsLegacy =
   "id,title,description,deadline_at,created_at,model_type,target_value,target_unit,check_in_count";
 
@@ -391,6 +393,7 @@ export default function DiscoverPage() {
                   target && target > 0
                     ? Math.min(Math.round(ratio * 100), 100)
                     : null;
+                const cadenceTag = cadenceCumulativeTag(goal.cadence);
                 const goalUnit =
                   (goal.count_unit_preset
                     ? getPresetLabel(goal.count_unit_preset)
@@ -414,6 +417,7 @@ export default function DiscoverPage() {
                       <span className={styles.pill}>
                         Due {new Date(goal.deadline_at).toLocaleDateString()}
                       </span>
+                      {cadenceTag ? <span className={styles.pill}>{cadenceTag}</span> : null}
                       {target ? (
                         <span className={styles.pill}>
                           Target {target} {goalUnit}

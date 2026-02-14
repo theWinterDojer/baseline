@@ -11,6 +11,7 @@ import {
   calculateSnapshotProgressPercent,
   isWeightSnapshotPreset,
 } from "@/lib/goalTracking";
+import { cadenceCumulativeHint, cadenceLabel } from "@/lib/cadenceCopy";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./publicGoal.module.css";
 
@@ -23,6 +24,7 @@ type Goal = {
   deadline_at: string;
   model_type: GoalModelType;
   goal_type: "count" | "duration" | null;
+  cadence: "daily" | "weekly" | "by_deadline" | null;
   count_unit_preset: string | null;
   cadence_target_value: number | null;
   start_snapshot_value: number | null;
@@ -123,6 +125,7 @@ export default function PublicGoalPage() {
   const progressTargetValue = isWeightSnapshotGoal
     ? goal?.cadence_target_value ?? goal?.target_value ?? goal?.total_target_value ?? null
     : goal?.total_target_value ?? goal?.target_value ?? null;
+  const cadenceRollupHint = cadenceCumulativeHint(goal?.cadence);
   const progressCurrentValue = useMemo(() => {
     if (!goal) return null;
     if (isWeightSnapshotGoal) {
@@ -505,6 +508,10 @@ export default function PublicGoalPage() {
               ) : null}
               <div className={styles.metaRow}>
                 <span className={styles.pill}>{goal.model_type}</span>
+                <span className={styles.pill}>
+                  {cadenceLabel(goal.cadence)}
+                  {cadenceRollupHint ? " (cumulative)" : ""}
+                </span>
                 <span className={styles.pill}>{goal.status}</span>
                 {completionNft ? (
                   <span className={styles.pill}>Completion NFT</span>
@@ -542,7 +549,9 @@ export default function PublicGoalPage() {
                   {progressTargetValue
                     ? isWeightSnapshotGoal
                       ? `${progressPercent}% to goal weight ${formatMetricValue(progressTargetValue)}`
-                      : `${progressPercent}% of ${progressTargetValue} ${goalUnitLabel}`
+                      : `${progressPercent}% of ${progressTargetValue} ${goalUnitLabel}${
+                          cadenceRollupHint ? " (cumulative target)" : ""
+                        }`
                     : "Target not set yet"}
                 </div>
                 <div className={styles.progressMeta}>
@@ -556,6 +565,9 @@ export default function PublicGoalPage() {
                       : `Logged: ${progressCurrentValue} ${goalUnitLabel}`
                     : `${goal.check_in_count} check-ins logged`}
                 </div>
+                {!isWeightSnapshotGoal && cadenceRollupHint ? (
+                  <div className={styles.progressMeta}>{cadenceRollupHint}</div>
+                ) : null}
               </div>
             </section>
 
