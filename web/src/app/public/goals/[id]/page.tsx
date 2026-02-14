@@ -156,6 +156,9 @@ export default function PublicGoalPage() {
       ? getPresetLabel(goal.count_unit_preset)
       : goal?.target_unit) ?? (isDurationGoal ? "minutes" : "units");
   const minProgressUnitLabel = goalUnitLabel.toLowerCase();
+  const isGoalOwnerViewer = Boolean(
+    session?.user?.id && goal?.user_id && session.user.id === goal.user_id
+  );
   const progressTargetValue = isWeightSnapshotGoal
     ? goal?.cadence_target_value ?? goal?.target_value ?? goal?.total_target_value ?? null
     : goal?.total_target_value ?? goal?.target_value ?? null;
@@ -567,6 +570,11 @@ export default function PublicGoalPage() {
       return;
     }
 
+    if (isGoalOwnerViewer) {
+      setPledgeError("You can’t sponsor your own goal.");
+      return;
+    }
+
     const amountValue =
       pledgeAmountMode === "custom" ? Number(customAmount) : pledgeAmount;
 
@@ -818,6 +826,9 @@ export default function PublicGoalPage() {
             <section className={styles.card}>
               <div className={styles.sectionTitle}>Sponsor this goal</div>
               {session ? (
+                isGoalOwnerViewer ? (
+                  <div className={styles.empty}>You can’t sponsor your own goal.</div>
+                ) : (
                 <form className={styles.form} onSubmit={handlePledgeSubmit}>
                   <div className={styles.field}>
                     <label className={styles.label}>Pledge amount</label>
@@ -910,6 +921,7 @@ export default function PublicGoalPage() {
                     </button>
                   </div>
                 </form>
+                )
               ) : (
                 <div className={styles.empty}>
                   Sign in with your wallet to sponsor this goal.

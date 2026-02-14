@@ -179,6 +179,7 @@ with check (
     select 1 from public.goals g
     where g.id = goal_id
       and g.privacy = 'public'
+      and g.user_id <> auth.uid()
   )
 );
 
@@ -193,10 +194,17 @@ using (
   )
 )
 with check (
-  auth.uid() = sponsor_id
-  or auth.uid() = (
-    select g.user_id from public.goals g
+  (
+    auth.uid() = sponsor_id
+    or auth.uid() = (
+      select g.user_id from public.goals g
+      where g.id = goal_id
+    )
+  )
+  and exists (
+    select 1 from public.goals g
     where g.id = goal_id
+      and g.user_id <> sponsor_id
   )
 );
 
