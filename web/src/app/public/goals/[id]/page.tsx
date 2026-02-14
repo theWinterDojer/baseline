@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { BASELINE_TAGLINE } from "@/lib/brand";
+import { logEvent } from "@/lib/eventLogger";
 import type { GoalModelType } from "@/lib/goalTypes";
 import { getPresetLabel } from "@/lib/goalPresets";
 import {
@@ -23,6 +24,7 @@ import styles from "./publicGoal.module.css";
 
 type Goal = {
   id: string;
+  user_id: string;
   title: string;
   description: string | null;
   tags: string[];
@@ -405,6 +407,7 @@ export default function PublicGoalPage() {
 
   useEffect(() => {
     if (!goal?.completed_at || sponsorPledges.length === 0) return;
+    if (!session?.user?.id) return;
     const completedAt = new Date(goal.completed_at);
     const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
     const now = new Date();
@@ -418,18 +421,50 @@ export default function PublicGoalPage() {
     if (overdue.length === 0) return;
 
     const settleOverdue = async () => {
-      await supabase
+      const { error: settleError } = await supabase
         .from("pledges")
         .update({ status: "settled", settled_at: new Date().toISOString() })
         .in(
           "id",
           overdue.map((pledge) => pledge.id)
         );
-      await loadSponsorPledges(goalId, session?.user?.id as string);
+
+      if (settleError) return;
+
+      await Promise.all(
+        overdue.map(async (pledge) => {
+          const { error: eventError } = await logEvent({
+            eventType: "pledge.settled_no_response",
+            actorId: session.user.id,
+            recipientId: goal.user_id,
+            goalId: goal.id,
+            pledgeId: pledge.id,
+            data: {
+              amountCents: pledge.amount_cents,
+              deadlineAt: pledge.deadline_at,
+              minimumProgress: legacyMinCheckInsToMinimumProgress(pledge.min_check_ins),
+            },
+          });
+
+          if (eventError) {
+            console.warn("Failed to log pledge.settled_no_response event", eventError);
+          }
+        })
+      );
+
+      await loadSponsorPledges(goalId, session.user.id);
+      await loadPublicSponsorData(goalId);
     };
 
     void settleOverdue();
-  }, [goal?.completed_at, sponsorPledges, goalId, session?.user?.id, loadSponsorPledges]);
+  }, [
+    goal,
+    goalId,
+    loadPublicSponsorData,
+    loadSponsorPledges,
+    session?.user?.id,
+    sponsorPledges,
+  ]);
 
   const handleCommentSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -470,6 +505,10 @@ export default function PublicGoalPage() {
   const handleApprove = async (pledgeId: string) => {
     setSponsorMessage(null);
     setSponsorError(null);
+    if (!session?.user?.id) {
+      setSponsorError("Sign in required.");
+      return;
+    }
     setApprovingId(pledgeId);
 
     const { error: updateError } = await supabase
@@ -485,6 +524,26 @@ export default function PublicGoalPage() {
       setSponsorError(updateError.message);
       setApprovingId(null);
       return;
+    }
+
+    const approvedPledge = sponsorPledges.find((pledge) => pledge.id === pledgeId);
+    if (approvedPledge && goal) {
+      const { error: eventError } = await logEvent({
+        eventType: "pledge.approved",
+        actorId: session.user.id,
+        recipientId: goal.user_id,
+        goalId: goal.id,
+        pledgeId: approvedPledge.id,
+        data: {
+          amountCents: approvedPledge.amount_cents,
+          deadlineAt: approvedPledge.deadline_at,
+          minimumProgress: legacyMinCheckInsToMinimumProgress(approvedPledge.min_check_ins),
+        },
+      });
+
+      if (eventError) {
+        console.warn("Failed to log pledge.approved event", eventError);
+      }
     }
 
     setSponsorMessage("Approval recorded. Escrow settled.");
@@ -566,6 +625,26 @@ export default function PublicGoalPage() {
         setPledgeError("Failed to save sponsor criteria. Please try again.");
         setPledgeSubmitting(false);
         return;
+      }
+    }
+
+    if (goal) {
+      const { error: eventError } = await logEvent({
+        eventType: "pledge.offered",
+        actorId: session.user.id,
+        recipientId: goal.user_id,
+        goalId: goal.id,
+        pledgeId: pledgeData.id,
+        data: {
+          amountCents: Math.round(amountValue * 100),
+          deadlineAt: deadlineISO,
+          minimumProgress: minimumProgressValue,
+          hasCriteria: Boolean(criteria),
+        },
+      });
+
+      if (eventError) {
+        console.warn("Failed to log pledge.offered event", eventError);
       }
     }
 
