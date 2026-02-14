@@ -48,6 +48,15 @@ type Goal = {
   created_at: string;
 };
 
+type DashboardNotification = {
+  id: string;
+  event_type: string;
+  goal_id: string | null;
+  pledge_id: string | null;
+  data: unknown;
+  created_at: string;
+};
+
 const modelLabels: Record<GoalModelType, string> = {
   count: "Count-based",
   time: "Duration-based",
@@ -150,6 +159,61 @@ const UNIT_GUIDANCE_BY_PRESET_KEY: Record<string, string> = {
 const isMissingGoalTagsColumnError = (message: string) =>
   message.includes("tags") && message.includes("does not exist");
 
+const sponsorshipEventTypes = new Set([
+  "pledge.offered",
+  "pledge.accepted",
+  "pledge.approved",
+  "pledge.settled_no_response",
+]);
+
+const formatSponsorshipAmount = (data: unknown): string | null => {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const amountCents = (data as Record<string, unknown>).amountCents;
+  if (typeof amountCents !== "number" || !Number.isFinite(amountCents) || amountCents <= 0) {
+    return null;
+  }
+  return `$${(amountCents / 100).toFixed(0)}`;
+};
+
+const notificationTitle = (eventType: string, data: unknown): string => {
+  const amountLabel = formatSponsorshipAmount(data);
+
+  switch (eventType) {
+    case "goal.created":
+      return "Goal created.";
+    case "goal.deleted":
+      return "Goal deleted.";
+    case "check_in.created":
+      return "Check-in logged.";
+    case "pledge.offered":
+      return amountLabel
+        ? `New sponsorship offer received (${amountLabel}).`
+        : "New sponsorship offer received.";
+    case "pledge.accepted":
+      return amountLabel
+        ? `Your sponsorship offer was accepted (${amountLabel}).`
+        : "Your sponsorship offer was accepted.";
+    case "pledge.approved":
+      return amountLabel
+        ? `Sponsorship approval recorded (${amountLabel}).`
+        : "Sponsorship approval recorded.";
+    case "pledge.settled_no_response":
+      return amountLabel
+        ? `Sponsorship auto-settled (${amountLabel}).`
+        : "Sponsorship auto-settled.";
+    default:
+      return "Goal activity updated.";
+  }
+};
+
+const notificationGoalHref = (eventType: string, goalId: string | null): string | null => {
+  if (!goalId) return null;
+  if (sponsorshipEventTypes.has(eventType)) {
+    return `/public/goals/${goalId}`;
+  }
+  return `/goals/${goalId}`;
+};
+
 export default function Home() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
@@ -158,7 +222,9 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const [goalsLoading, setGoalsLoading] = useState(false);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [walletAuthLoading, setWalletAuthLoading] = useState(false);
   const [lastAuthAddress, setLastAuthAddress] = useState<string | null>(null);
   const [goalWizardStep, setGoalWizardStep] = useState(0);
@@ -491,22 +557,48 @@ export default function Home() {
     setGoalsLoading(false);
   };
 
+  const loadNotifications = async (activeSession: Session | null) => {
+    if (!activeSession) return;
+    setNotificationsLoading(true);
+
+    const { data, error } = await supabase
+      .from("events")
+      .select("id,event_type,goal_id,pledge_id,data,created_at")
+      .eq("recipient_id", activeSession.user.id)
+      .order("created_at", { ascending: false })
+      .limit(8);
+
+    if (error) {
+      console.warn("Failed to load notifications", error.message);
+      setNotifications([]);
+      setNotificationsLoading(false);
+      return;
+    }
+
+    setNotifications((data ?? []) as DashboardNotification[]);
+    setNotificationsLoading(false);
+  };
+
   useEffect(() => {
     let mounted = true;
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       setSession(data.session ?? null);
       setInitializing(false);
-      loadGoals(data.session ?? null);
+      void Promise.all([
+        loadGoals(data.session ?? null),
+        loadNotifications(data.session ?? null),
+      ]);
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, newSession) => {
         setSession(newSession);
         if (newSession) {
-          loadGoals(newSession);
+          void Promise.all([loadGoals(newSession), loadNotifications(newSession)]);
         } else {
           setGoals([]);
+          setNotifications([]);
           setLastAuthAddress(null);
         }
       }
@@ -1591,6 +1683,44 @@ export default function Home() {
                 <p className={styles.panelSubheading}>
                   Review your goals and add check-ins as you go.
                 </p>
+                <section className={styles.notificationsSection}>
+                  <h3 className={styles.notificationsHeading}>Recent activity</h3>
+                  {notificationsLoading ? (
+                    <div className={styles.emptyState}>Loading activity...</div>
+                  ) : notifications.length === 0 ? (
+                    <div className={styles.emptyState}>No activity yet.</div>
+                  ) : (
+                    <div className={styles.notificationsList}>
+                      {notifications.map((notification) => {
+                        const eventHref = notificationGoalHref(
+                          notification.event_type,
+                          notification.goal_id
+                        );
+
+                        return (
+                          <div key={notification.id} className={styles.notificationCard}>
+                            <div className={styles.notificationTitle}>
+                              {notificationTitle(notification.event_type, notification.data)}
+                            </div>
+                            <div className={styles.notificationMeta}>
+                              <span>
+                                {new Date(notification.created_at).toLocaleString()}
+                              </span>
+                              {eventHref ? (
+                                <Link
+                                  href={eventHref}
+                                  className={styles.notificationLink}
+                                >
+                                  View
+                                </Link>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
                 {initializing || goalsLoading ? (
                   <div className={styles.emptyState}>Loading your goals...</div>
                 ) : goals.length === 0 ? (

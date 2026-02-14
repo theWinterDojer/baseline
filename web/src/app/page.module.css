@@ -664,6 +664,60 @@
   color: #2f5e4d;
 }
 
+.notificationsSection {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed rgba(90, 61, 43, 0.2);
+}
+
+.notificationsHeading {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #5c5142;
+}
+
+.notificationsList {
+  display: grid;
+  gap: 10px;
+}
+
+.notificationCard {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(90, 61, 43, 0.14);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.notificationTitle {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #332b22;
+}
+
+.notificationMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: #6b5f4a;
+}
+
+.notificationLink {
+  color: #5a3d2b;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.notificationLink:hover {
+  text-decoration: underline;
+}
+
 .goalList {
   display: grid;
   gap: 14px;
