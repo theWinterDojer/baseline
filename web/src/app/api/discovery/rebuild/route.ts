@@ -21,19 +21,34 @@ type CommentRow = {
 
 const RECENT_DAYS = 7;
 
-export async function POST(request: Request) {
+const unauthorized = () =>
+  NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+const isAuthorizedPost = (request: Request): boolean => {
+  const secret = process.env.DISCOVERY_REBUILD_KEY;
+  const provided = request.headers.get("x-discovery-key");
+  return Boolean(secret && provided && provided === secret);
+};
+
+const isAuthorizedCron = (request: Request): boolean => {
+  const cronSecret = process.env.CRON_SECRET;
+  const authorization = request.headers.get("authorization");
+  if (cronSecret && authorization === `Bearer ${cronSecret}`) {
+    return true;
+  }
+
+  // Optional fallback for environments invoking GET manually with legacy key.
+  const rebuildKey = process.env.DISCOVERY_REBUILD_KEY;
+  const provided = request.headers.get("x-discovery-key");
+  return Boolean(rebuildKey && provided && provided === rebuildKey);
+};
+
+const rebuildDiscoveryRankings = async () => {
   if (!supabaseAdmin) {
     return NextResponse.json(
       { error: "Missing SUPABASE_SERVICE_ROLE_KEY." },
       { status: 500 }
     );
-  }
-
-  const secret = process.env.DISCOVERY_REBUILD_KEY;
-  const provided = request.headers.get("x-discovery-key");
-
-  if (!secret || provided !== secret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const cutoff = new Date();
@@ -140,4 +155,20 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ updated: rows.length });
+};
+
+export async function POST(request: Request) {
+  if (!isAuthorizedPost(request)) {
+    return unauthorized();
+  }
+
+  return rebuildDiscoveryRankings();
+}
+
+export async function GET(request: Request) {
+  if (!isAuthorizedCron(request)) {
+    return unauthorized();
+  }
+
+  return rebuildDiscoveryRankings();
 }
