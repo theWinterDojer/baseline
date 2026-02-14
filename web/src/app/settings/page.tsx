@@ -222,7 +222,7 @@ export default function SettingsPage() {
           <div className={styles.title}>Account settings</div>
           <p className={styles.subheading}>
             Attach an email address for recovery and secondary authentication. Wallet sign-in
-            remains the primary method.
+            remains the primary method. Attached emails receive sponsorship notification emails.
           </p>
           {walletAddress ? (
             <div className={styles.pillRow}>
@@ -234,6 +234,11 @@ export default function SettingsPage() {
               {attachedEmail ? `Attached email: ${attachedEmail}` : "No attached email"}
             </span>
           </div>
+          {attachedEmail ? (
+            <div className={styles.pillRow}>
+              <span className={styles.pill}>Email notifications: enabled</span>
+            </div>
+          ) : null}
           {pendingEmail ? (
             <div className={styles.pillRow}>
               <span className={styles.pill}>Pending verification: {pendingEmail}</span>
