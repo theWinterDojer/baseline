@@ -155,6 +155,7 @@ with required_policies(schemaname, tablename, policyname) as (
     ('public', 'check_ins', 'check_ins_update_owner'),
     ('public', 'check_ins', 'check_ins_delete_owner'),
     ('public', 'pledges', 'pledges_select_owner_or_sponsor'),
+    ('public', 'pledges', 'pledges_select_public_goal'),
     ('public', 'pledges', 'pledges_insert_sponsor'),
     ('public', 'pledges', 'pledges_update_owner_or_sponsor'),
     ('public', 'pledges', 'pledges_delete_sponsor'),

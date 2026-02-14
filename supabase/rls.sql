@@ -26,6 +26,7 @@ drop policy if exists "check_ins_update_owner" on public.check_ins;
 drop policy if exists "check_ins_delete_owner" on public.check_ins;
 
 drop policy if exists "pledges_select_owner_or_sponsor" on public.pledges;
+drop policy if exists "pledges_select_public_goal" on public.pledges;
 drop policy if exists "pledges_insert_sponsor" on public.pledges;
 drop policy if exists "pledges_update_owner_or_sponsor" on public.pledges;
 drop policy if exists "pledges_delete_sponsor" on public.pledges;
@@ -155,6 +156,17 @@ using (
   or auth.uid() = (
     select g.user_id from public.goals g
     where g.id = goal_id
+  )
+);
+
+create policy "pledges_select_public_goal"
+on public.pledges
+for select
+using (
+  exists (
+    select 1 from public.goals g
+    where g.id = goal_id
+      and g.privacy = 'public'
   )
 );
 

@@ -70,6 +70,23 @@ type SponsorPledge = {
   created_at: string;
 };
 
+type PublicSponsorPledge = {
+  id: string;
+  amount_cents: number;
+  deadline_at: string;
+  min_check_ins: number | null;
+  status: "offered" | "accepted" | "settled" | "expired" | "cancelled";
+  approval_at: string | null;
+  created_at: string;
+};
+
+type SponsorCriteriaNote = {
+  id: string;
+  pledge_id: string;
+  text: string;
+  created_at: string;
+};
+
 const formatMetricValue = (value: number) => {
   const rounded = Math.round(value * 100) / 100;
   if (Number.isInteger(rounded)) return String(rounded);
@@ -90,8 +107,15 @@ export default function PublicGoalPage() {
   const [commentMessage, setCommentMessage] = useState<string | null>(null);
   const [commentSubmitError, setCommentSubmitError] = useState<string | null>(null);
   const [sponsorPledges, setSponsorPledges] = useState<SponsorPledge[]>([]);
+  const [publicSponsorPledges, setPublicSponsorPledges] = useState<PublicSponsorPledge[]>(
+    []
+  );
+  const [sponsorCriteriaNotes, setSponsorCriteriaNotes] = useState<SponsorCriteriaNote[]>(
+    []
+  );
   const [sponsorMessage, setSponsorMessage] = useState<string | null>(null);
   const [sponsorError, setSponsorError] = useState<string | null>(null);
+  const [publicSponsorError, setPublicSponsorError] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [completionNft, setCompletionNft] = useState<CompletionNft | null>(null);
   const [pledgeAmount, setPledgeAmount] = useState(10);
@@ -159,6 +183,24 @@ export default function PublicGoalPage() {
     progressTargetValue,
     startSnapshotProgressValue,
   ]);
+  const totalSponsoredCents = useMemo(
+    () =>
+      publicSponsorPledges.reduce((sum, pledge) => sum + Math.max(pledge.amount_cents, 0), 0),
+    [publicSponsorPledges]
+  );
+  const hasVerifiedSponsor = useMemo(
+    () => publicSponsorPledges.some((pledge) => pledge.approval_at !== null),
+    [publicSponsorPledges]
+  );
+  const criteriaByPledgeId = useMemo(() => {
+    const grouped = new Map<string, SponsorCriteriaNote[]>();
+    for (const note of sponsorCriteriaNotes) {
+      const current = grouped.get(note.pledge_id) ?? [];
+      current.push(note);
+      grouped.set(note.pledge_id, current);
+    }
+    return grouped;
+  }, [sponsorCriteriaNotes]);
 
   useEffect(() => {
     let mounted = true;
@@ -285,6 +327,45 @@ export default function PublicGoalPage() {
     setSponsorPledges(data ?? []);
   }, []);
 
+  const loadPublicSponsorData = useCallback(async (id: string) => {
+    setPublicSponsorError(null);
+
+    const [publicPledgesResult, criteriaResult] = await Promise.all([
+      supabase
+        .from("pledges")
+        .select("id,amount_cents,deadline_at,min_check_ins,status,approval_at,created_at")
+        .eq("goal_id", id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("sponsor_criteria")
+        .select("id,pledge_id,text,created_at,pledges!inner(goal_id)")
+        .eq("pledges.goal_id", id)
+        .order("created_at", { ascending: false }),
+    ]);
+
+    if (publicPledgesResult.error) {
+      setPublicSponsorError(publicPledgesResult.error.message);
+      setPublicSponsorPledges([]);
+    } else {
+      setPublicSponsorPledges((publicPledgesResult.data ?? []) as PublicSponsorPledge[]);
+    }
+
+    if (criteriaResult.error) {
+      if (!publicPledgesResult.error) {
+        setPublicSponsorError(criteriaResult.error.message);
+      }
+      setSponsorCriteriaNotes([]);
+    } else {
+      const normalized = (criteriaResult.data ?? []).map((row) => ({
+        id: row.id,
+        pledge_id: row.pledge_id,
+        text: row.text,
+        created_at: row.created_at,
+      })) as SponsorCriteriaNote[];
+      setSponsorCriteriaNotes(normalized);
+    }
+  }, []);
+
   useEffect(() => {
     if (!goalId) return;
     const timeoutId = setTimeout(() => {
@@ -306,6 +387,16 @@ export default function PublicGoalPage() {
       clearTimeout(timeoutId);
     };
   }, [goalId, session?.user?.id, loadSponsorPledges]);
+
+  useEffect(() => {
+    if (!goalId) return;
+    const timeoutId = setTimeout(() => {
+      void loadPublicSponsorData(goalId);
+    }, 0);
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [goalId, loadPublicSponsorData]);
 
   useEffect(() => {
     if (!goal?.completed_at || sponsorPledges.length === 0) return;
@@ -393,6 +484,7 @@ export default function PublicGoalPage() {
 
     setSponsorMessage("Approval recorded. Escrow settled.");
     await loadSponsorPledges(goalId as string, session?.user?.id as string);
+    await loadPublicSponsorData(goalId as string);
     setApprovingId(null);
   };
 
@@ -478,6 +570,7 @@ export default function PublicGoalPage() {
     setPledgeDeadline("");
     setMinCheckIns("");
     setCriteriaText("");
+    await loadPublicSponsorData(goalId);
   };
 
   return (
@@ -518,6 +611,9 @@ export default function PublicGoalPage() {
                 <span className={styles.pill}>{goal.status}</span>
                 {completionNft ? (
                   <span className={styles.pill}>Completion NFT</span>
+                ) : null}
+                {hasVerifiedSponsor ? (
+                  <span className={styles.pill}>Verified by sponsor</span>
                 ) : null}
                 {goal.completed_at ? (
                   <span className={styles.pill}>
@@ -577,6 +673,57 @@ export default function PublicGoalPage() {
                   <div className={styles.progressMeta}>{cadenceRollupHint}</div>
                 ) : null}
               </div>
+            </section>
+
+            <section className={styles.card}>
+              <div className={styles.sectionTitle}>Sponsor activity</div>
+              {publicSponsorError ? (
+                <div className={styles.message}>{publicSponsorError}</div>
+              ) : null}
+              {publicSponsorPledges.length === 0 ? (
+                <div className={styles.empty}>No sponsorships yet.</div>
+              ) : (
+                <>
+                  <div className={styles.progressMeta}>
+                    {publicSponsorPledges.length} sponsor
+                    {publicSponsorPledges.length === 1 ? "" : "s"} · $
+                    {Math.round(totalSponsoredCents / 100)} total offered
+                    {hasVerifiedSponsor ? " · verified by sponsor" : ""}
+                  </div>
+                  <div className={styles.list}>
+                    {publicSponsorPledges.map((pledge, index) => {
+                      const criteria = criteriaByPledgeId.get(pledge.id) ?? [];
+                      return (
+                        <div key={pledge.id} className={styles.listItem}>
+                          <div className={styles.listMeta}>
+                            Sponsor #{index + 1} · Offered{" "}
+                            {new Date(pledge.created_at).toLocaleDateString()}
+                          </div>
+                          <div>
+                            ${Math.round(pledge.amount_cents / 100)} ·{" "}
+                            {pledge.status === "settled" && !pledge.approval_at
+                              ? "settled (no response)"
+                              : pledge.status}
+                          </div>
+                          {pledge.min_check_ins !== null ? (
+                            <div className={styles.listMeta}>
+                              Minimum progress: {pledge.min_check_ins} {minProgressUnitLabel}
+                            </div>
+                          ) : null}
+                          <div className={styles.listMeta}>
+                            Offer deadline {new Date(pledge.deadline_at).toLocaleDateString()}
+                          </div>
+                          {criteria.map((note) => (
+                            <div key={note.id} className={styles.listMeta}>
+                              Criteria: {note.text}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </section>
 
             <section className={styles.card}>
