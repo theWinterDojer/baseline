@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, supabaseServer } from "@/lib/supabaseServer";
+import {
+  isSponsorshipNotificationEventType,
+  readSponsorshipEmailPreferences,
+} from "@/lib/notificationPreferences";
 
 type LogEventRequest = {
   eventType?: unknown;
@@ -9,13 +13,6 @@ type LogEventRequest = {
   pledgeId?: unknown;
   data?: unknown;
 };
-
-const EMAIL_NOTIFIABLE_EVENT_TYPES = new Set([
-  "pledge.offered",
-  "pledge.accepted",
-  "pledge.approved",
-  "pledge.settled_no_response",
-]);
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
@@ -101,7 +98,7 @@ const maybeSendNotificationEmail = async ({
     return { sent: false };
   }
 
-  if (!EMAIL_NOTIFIABLE_EVENT_TYPES.has(eventType)) {
+  if (!isSponsorshipNotificationEventType(eventType)) {
     return { sent: false };
   }
 
@@ -121,6 +118,10 @@ const maybeSendNotificationEmail = async ({
   const metadata = (userData.user.user_metadata ?? {}) as Record<string, unknown>;
   const attachedEmail = metadata.attached_email;
   if (!isNonEmptyString(attachedEmail)) {
+    return { sent: false };
+  }
+  const preferences = readSponsorshipEmailPreferences(metadata);
+  if (!preferences[eventType]) {
     return { sent: false };
   }
 

@@ -128,32 +128,6 @@ export default function GoalOffersPage() {
     setPledges(data ?? []);
   };
 
-  const expireOverdueOffers = async (items: Pledge[]) => {
-    const now = new Date();
-    const overdueIds = items
-      .filter((pledge) =>
-        pledge.status === "offered" && new Date(pledge.deadline_at) < now
-      )
-      .map((pledge) => pledge.id);
-
-    if (overdueIds.length === 0) return;
-
-    const { error: expireError } = await supabase
-      .from("pledges")
-      .update({ status: "expired" })
-      .in("id", overdueIds);
-
-    if (!expireError) {
-      setPledges((current) =>
-        current.map((pledge) =>
-          overdueIds.includes(pledge.id)
-            ? { ...pledge, status: "expired" }
-            : pledge
-        )
-      );
-    }
-  };
-
   useEffect(() => {
     if (!goalId) return;
     const timeoutId = setTimeout(() => {
@@ -174,76 +148,6 @@ export default function GoalOffersPage() {
     };
   }, [goalId]);
 
-  useEffect(() => {
-    if (pledges.length === 0) return;
-    const timeoutId = setTimeout(() => {
-      void expireOverdueOffers(pledges);
-    }, 0);
-
-    return () => {
-      clearTimeout(timeoutId);
-    };
-  }, [pledges]);
-
-  useEffect(() => {
-    if (!goal?.completed_at || pledges.length === 0) return;
-    if (!session?.user?.id || session.user.id !== goal.user_id) return;
-    const completedAt = new Date(goal.completed_at);
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-    const now = new Date();
-
-    const overdue = pledges.filter(
-      (pledge) =>
-        pledge.status === "accepted" &&
-        completedAt.getTime() + sevenDaysMs < now.getTime()
-    );
-
-    if (overdue.length === 0) return;
-
-    const settleOverdue = async () => {
-      const { error: settleError } = await supabase
-        .from("pledges")
-        .update({ status: "settled", settled_at: new Date().toISOString() })
-        .in(
-          "id",
-          overdue.map((pledge) => pledge.id)
-        );
-
-      if (!settleError) {
-        await Promise.all(
-          overdue.map(async (pledge) => {
-            const { error: eventError } = await logEvent({
-              eventType: "pledge.settled_no_response",
-              actorId: session.user.id,
-              recipientId: pledge.sponsor_id,
-              goalId: goal.id,
-              pledgeId: pledge.id,
-              data: {
-                amountCents: pledge.amount_cents,
-                deadlineAt: pledge.deadline_at,
-                minimumProgress: legacyMinCheckInsToMinimumProgress(pledge.min_check_ins),
-              },
-            });
-
-            if (eventError) {
-              console.warn("Failed to log pledge.settled_no_response event", eventError);
-            }
-          })
-        );
-
-        setPledges((current) =>
-          current.map((pledge) =>
-            overdue.some((item) => item.id === pledge.id)
-              ? { ...pledge, status: "settled" }
-              : pledge
-          )
-        );
-      }
-    };
-
-    void settleOverdue();
-  }, [goal?.completed_at, goal?.id, goal?.user_id, pledges, session?.user?.id]);
-
   const handleAccept = async (pledgeId: string) => {
     setActionMessage(null);
     setActionError(null);
@@ -259,7 +163,6 @@ export default function GoalOffersPage() {
       .update({
         status: "accepted",
         accepted_at: acceptedAt,
-        escrow_tx: `mock:${acceptedAt}`,
       })
       .eq("id", pledgeId);
 
@@ -331,7 +234,8 @@ export default function GoalOffersPage() {
                 <span className={styles.pill}>{activeOffers.length} active</span>
               </div>
               <div className={styles.notice}>
-                Accepting an offer creates escrow (mocked for now). Offers are sorted by amount.
+                Sponsorships funded with USDC escrow are accepted when submitted. Legacy offered
+                rows can still be accepted here for data continuity.
               </div>
             </section>
 

@@ -3,6 +3,14 @@
     {
       "path": "/api/discovery/rebuild",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/pledges/expire-overdue",
+      "schedule": "10 * * * *"
+    },
+    {
+      "path": "/api/pledges/settle-overdue",
+      "schedule": "15 * * * *"
     }
   ]
 }

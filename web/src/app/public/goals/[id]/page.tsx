@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
+import { erc20Abi, type Address, type Hex } from "viem";
+import { base } from "viem/chains";
+import { useAccount, useChainId, usePublicClient, useWalletClient } from "wagmi";
 import { BASELINE_TAGLINE } from "@/lib/brand";
+import ProgressTrend from "@/components/ProgressTrend";
+import { habitRegistryAbi } from "@/lib/contracts";
 import { logEvent } from "@/lib/eventLogger";
 import type { GoalModelType } from "@/lib/goalTypes";
 import { getPresetLabel } from "@/lib/goalPresets";
@@ -12,8 +17,17 @@ import {
   calculateSnapshotProgressPercent,
   isWeightSnapshotPreset,
 } from "@/lib/goalTracking";
+import { buildProgressTrendPoints } from "@/lib/progressTrend";
 import { cadenceCumulativeHint, cadenceLabel } from "@/lib/cadenceCopy";
 import { supabase } from "@/lib/supabaseClient";
+import { formatMetricValue } from "@/lib/numberFormat";
+import {
+  BASE_MAINNET_CHAIN_ID,
+  BASE_USDC_ADDRESS,
+  HABIT_REGISTRY_ADDRESS,
+  HAS_HABIT_REGISTRY_ADDRESS_CONFIG,
+  centsToUsdcRaw,
+} from "@/lib/sponsorshipChain";
 import {
   legacyMinCheckInsToMinimumProgress,
   minimumProgressToLegacyMinCheckIns,
@@ -71,6 +85,12 @@ type SponsorPledge = {
   accepted_at: string | null;
   approval_at: string | null;
   settled_at: string | null;
+  escrow_tx: string | null;
+  onchain_pledge_id: string | null;
+  escrow_chain_id: number | null;
+  escrow_token_address: string | null;
+  escrow_amount_raw: string | null;
+  settlement_tx: string | null;
   created_at: string;
 };
 
@@ -91,15 +111,31 @@ type SponsorCriteriaNote = {
   created_at: string;
 };
 
-const formatMetricValue = (value: number) => {
-  const rounded = Math.round(value * 100) / 100;
-  if (Number.isInteger(rounded)) return String(rounded);
-  return rounded.toFixed(2).replace(/\.?0+$/, "");
+type TrendCheckIn = {
+  check_in_at: string;
+  progress_value: number;
+  progress_snapshot_value: number | null;
 };
+
+const isMissingCheckInProgressColumnsError = (message: string) => {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("does not exist") &&
+    (normalized.includes("progress_value") ||
+      normalized.includes("progress_snapshot_value"))
+  );
+};
+
+const toUnixSeconds = (isoTimestamp: string) =>
+  BigInt(Math.floor(new Date(isoTimestamp).getTime() / 1000));
 
 export default function PublicGoalPage() {
   const params = useParams<{ id: string }>();
   const goalId = params?.id;
+  const { address: connectedAddress } = useAccount();
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient({ chainId: BASE_MAINNET_CHAIN_ID });
+  const activeChainId = useChainId();
   const [session, setSession] = useState<Session | null>(null);
   const [goal, setGoal] = useState<Goal | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -139,6 +175,7 @@ export default function PublicGoalPage() {
   const [startSnapshotProgressValue, setStartSnapshotProgressValue] = useState<
     number | null
   >(null);
+  const [trendCheckIns, setTrendCheckIns] = useState<TrendCheckIn[]>([]);
 
   const pledgePresets = [5, 10, 20, 50, 100];
 
@@ -189,6 +226,18 @@ export default function PublicGoalPage() {
     progressTargetValue,
     startSnapshotProgressValue,
   ]);
+  const progressTrendPoints = useMemo(
+    () =>
+      buildProgressTrendPoints({
+        mode: isWeightSnapshotGoal ? "snapshot" : "cumulative",
+        checkIns: trendCheckIns.map((checkIn) => ({
+          checkInAt: checkIn.check_in_at,
+          progressValue: checkIn.progress_value,
+          progressSnapshotValue: checkIn.progress_snapshot_value,
+        })),
+      }),
+    [isWeightSnapshotGoal, trendCheckIns]
+  );
   const totalSponsoredCents = useMemo(
     () =>
       publicSponsorPledges.reduce((sum, pledge) => sum + Math.max(pledge.amount_cents, 0), 0),
@@ -266,6 +315,7 @@ export default function PublicGoalPage() {
 
     setGoal(data);
     setLatestSnapshotProgressValue(null);
+    setTrendCheckIns([]);
     setStartSnapshotProgressValue(
       typeof data.start_snapshot_value === "number" ? data.start_snapshot_value : null
     );
@@ -305,6 +355,37 @@ export default function PublicGoalPage() {
       }
     }
 
+    const progressCheckInsResult = await supabase
+      .from("check_ins")
+      .select("check_in_at,progress_value,progress_snapshot_value")
+      .eq("goal_id", id)
+      .order("check_in_at", { ascending: true })
+      .limit(120);
+
+    if (
+      progressCheckInsResult.error &&
+      isMissingCheckInProgressColumnsError(progressCheckInsResult.error.message)
+    ) {
+      const legacyTrendCheckInsResult = await supabase
+        .from("check_ins")
+        .select("check_in_at")
+        .eq("goal_id", id)
+        .order("check_in_at", { ascending: true })
+        .limit(120);
+
+      if (!legacyTrendCheckInsResult.error) {
+        setTrendCheckIns(
+          (legacyTrendCheckInsResult.data ?? []).map((row) => ({
+            check_in_at: row.check_in_at,
+            progress_value: 1,
+            progress_snapshot_value: null,
+          }))
+        );
+      }
+    } else if (!progressCheckInsResult.error) {
+      setTrendCheckIns(progressCheckInsResult.data ?? []);
+    }
+
     const { data: nftData } = await supabase
       .from("completion_nfts")
       .select("id,token_id,tx_hash,created_at")
@@ -318,7 +399,7 @@ export default function PublicGoalPage() {
     const { data, error: pledgeError } = await supabase
       .from("pledges")
       .select(
-        "id,amount_cents,deadline_at,min_check_ins,status,accepted_at,approval_at,settled_at,created_at"
+        "id,amount_cents,deadline_at,min_check_ins,status,accepted_at,approval_at,settled_at,escrow_tx,onchain_pledge_id,escrow_chain_id,escrow_token_address,escrow_amount_raw,settlement_tx,created_at"
       )
       .eq("goal_id", id)
       .eq("sponsor_id", userId)
@@ -404,67 +485,6 @@ export default function PublicGoalPage() {
     };
   }, [goalId, loadPublicSponsorData]);
 
-  useEffect(() => {
-    if (!goal?.completed_at || sponsorPledges.length === 0) return;
-    if (!session?.user?.id) return;
-    const completedAt = new Date(goal.completed_at);
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-    const now = new Date();
-
-    const overdue = sponsorPledges.filter(
-      (pledge) =>
-        pledge.status === "accepted" &&
-        completedAt.getTime() + sevenDaysMs < now.getTime()
-    );
-
-    if (overdue.length === 0) return;
-
-    const settleOverdue = async () => {
-      const { error: settleError } = await supabase
-        .from("pledges")
-        .update({ status: "settled", settled_at: new Date().toISOString() })
-        .in(
-          "id",
-          overdue.map((pledge) => pledge.id)
-        );
-
-      if (settleError) return;
-
-      await Promise.all(
-        overdue.map(async (pledge) => {
-          const { error: eventError } = await logEvent({
-            eventType: "pledge.settled_no_response",
-            actorId: session.user.id,
-            recipientId: goal.user_id,
-            goalId: goal.id,
-            pledgeId: pledge.id,
-            data: {
-              amountCents: pledge.amount_cents,
-              deadlineAt: pledge.deadline_at,
-              minimumProgress: legacyMinCheckInsToMinimumProgress(pledge.min_check_ins),
-            },
-          });
-
-          if (eventError) {
-            console.warn("Failed to log pledge.settled_no_response event", eventError);
-          }
-        })
-      );
-
-      await loadSponsorPledges(goalId, session.user.id);
-      await loadPublicSponsorData(goalId);
-    };
-
-    void settleOverdue();
-  }, [
-    goal,
-    goalId,
-    loadPublicSponsorData,
-    loadSponsorPledges,
-    session?.user?.id,
-    sponsorPledges,
-  ]);
-
   const handleCommentSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setCommentSubmitError(null);
@@ -510,12 +530,76 @@ export default function PublicGoalPage() {
     }
     setApprovingId(pledgeId);
 
+    const approvedPledge = sponsorPledges.find((pledge) => pledge.id === pledgeId);
+    if (!approvedPledge) {
+      setSponsorError("Pledge not found.");
+      setApprovingId(null);
+      return;
+    }
+
+    let settlementTx: Hex | null = null;
+
+    const hasOnchainPledge = Boolean(approvedPledge.onchain_pledge_id);
+
+    if (HAS_HABIT_REGISTRY_ADDRESS_CONFIG && hasOnchainPledge) {
+      if (!HABIT_REGISTRY_ADDRESS) {
+        setSponsorError("Invalid NEXT_PUBLIC_HABIT_REGISTRY_ADDRESS.");
+        setApprovingId(null);
+        return;
+      }
+      if (!walletClient || !publicClient) {
+        setSponsorError("Wallet client unavailable for on-chain settlement.");
+        setApprovingId(null);
+        return;
+      }
+      if (!connectedAddress) {
+        setSponsorError("Connect your wallet to settle sponsorship.");
+        setApprovingId(null);
+        return;
+      }
+      if (activeChainId !== BASE_MAINNET_CHAIN_ID) {
+        setSponsorError("Switch wallet network to Base mainnet to settle sponsorship.");
+        setApprovingId(null);
+        return;
+      }
+      let onchainPledgeId: bigint;
+      try {
+        onchainPledgeId = BigInt(approvedPledge.onchain_pledge_id as string);
+      } catch {
+        setSponsorError("Invalid on-chain pledge id.");
+        setApprovingId(null);
+        return;
+      }
+
+      try {
+        const simulation = await publicClient.simulateContract({
+          account: connectedAddress as Address,
+          address: HABIT_REGISTRY_ADDRESS,
+          abi: habitRegistryAbi,
+          functionName: "settlePledge",
+          args: [onchainPledgeId],
+          chain: base,
+        });
+        settlementTx = await walletClient.writeContract(simulation.request);
+        await publicClient.waitForTransactionReceipt({ hash: settlementTx });
+      } catch (settleError) {
+        setSponsorError(
+          settleError instanceof Error
+            ? settleError.message
+            : "Failed to settle sponsorship on-chain."
+        );
+        setApprovingId(null);
+        return;
+      }
+    }
+
     const { error: updateError } = await supabase
       .from("pledges")
       .update({
         status: "settled",
         approval_at: new Date().toISOString(),
         settled_at: new Date().toISOString(),
+        settlement_tx: settlementTx,
       })
       .eq("id", pledgeId);
 
@@ -525,8 +609,7 @@ export default function PublicGoalPage() {
       return;
     }
 
-    const approvedPledge = sponsorPledges.find((pledge) => pledge.id === pledgeId);
-    if (approvedPledge && goal) {
+    if (goal) {
       const { error: eventError } = await logEvent({
         eventType: "pledge.approved",
         actorId: session.user.id,
@@ -545,7 +628,11 @@ export default function PublicGoalPage() {
       }
     }
 
-    setSponsorMessage("Approval recorded. Escrow settled.");
+    setSponsorMessage(
+      hasOnchainPledge
+        ? "Approval recorded. Escrow settled on-chain."
+        : "Approval recorded. Legacy off-chain pledge marked settled."
+    );
     await loadSponsorPledges(goalId as string, session?.user?.id as string);
     await loadPublicSponsorData(goalId as string);
     setApprovingId(null);
@@ -596,15 +683,120 @@ export default function PublicGoalPage() {
 
     setPledgeSubmitting(true);
 
+    const amountCents = Math.round(amountValue * 100);
+    const minimumProgressLegacy =
+      minimumProgressToLegacyMinCheckIns(minimumProgressValue);
+    let status: SponsorPledge["status"] = "offered";
+    let acceptedAt: string | null = null;
+    let escrowTx: Hex | null = null;
+    let onchainPledgeId: string | null = null;
+    let escrowChainId: number | null = null;
+    let escrowTokenAddress: string | null = null;
+    let escrowAmountRaw: string | null = null;
+
+    if (HAS_HABIT_REGISTRY_ADDRESS_CONFIG) {
+      if (!HABIT_REGISTRY_ADDRESS) {
+        setPledgeError("Invalid NEXT_PUBLIC_HABIT_REGISTRY_ADDRESS.");
+        setPledgeSubmitting(false);
+        return;
+      }
+      if (!BASE_USDC_ADDRESS) {
+        setPledgeError("Invalid NEXT_PUBLIC_BASE_USDC_ADDRESS.");
+        setPledgeSubmitting(false);
+        return;
+      }
+      if (!goal?.commitment_id) {
+        setPledgeError("Goal is missing on-chain commitment. Ask owner to re-anchor goal.");
+        setPledgeSubmitting(false);
+        return;
+      }
+      if (!walletClient || !publicClient) {
+        setPledgeError("Wallet client unavailable for on-chain sponsorship.");
+        setPledgeSubmitting(false);
+        return;
+      }
+      if (!connectedAddress) {
+        setPledgeError("Connect your wallet to submit a sponsorship.");
+        setPledgeSubmitting(false);
+        return;
+      }
+      if (activeChainId !== BASE_MAINNET_CHAIN_ID) {
+        setPledgeError("Switch wallet network to Base mainnet to sponsor.");
+        setPledgeSubmitting(false);
+        return;
+      }
+
+      let commitmentIdBigInt: bigint;
+      try {
+        commitmentIdBigInt = BigInt(goal.commitment_id);
+      } catch {
+        setPledgeError("Goal commitment id is invalid for on-chain sponsorship.");
+        setPledgeSubmitting(false);
+        return;
+      }
+
+      try {
+        const amountRaw = centsToUsdcRaw(amountCents);
+        const approveSimulation = await publicClient.simulateContract({
+          account: connectedAddress as Address,
+          address: BASE_USDC_ADDRESS,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [HABIT_REGISTRY_ADDRESS, amountRaw],
+          chain: base,
+        });
+        const approveTx = await walletClient.writeContract(approveSimulation.request);
+        await publicClient.waitForTransactionReceipt({ hash: approveTx });
+
+        const createSimulation = await publicClient.simulateContract({
+          account: connectedAddress as Address,
+          address: HABIT_REGISTRY_ADDRESS,
+          abi: habitRegistryAbi,
+          functionName: "createPledge",
+          args: [
+            commitmentIdBigInt,
+            amountRaw,
+            toUnixSeconds(deadlineISO),
+            BigInt(minimumProgressLegacy ?? 0),
+          ],
+          chain: base,
+        });
+
+        onchainPledgeId = String(createSimulation.result);
+        escrowTx = await walletClient.writeContract(createSimulation.request);
+        await publicClient.waitForTransactionReceipt({ hash: escrowTx });
+
+        status = "accepted";
+        acceptedAt = new Date().toISOString();
+        escrowChainId = BASE_MAINNET_CHAIN_ID;
+        escrowTokenAddress = BASE_USDC_ADDRESS;
+        escrowAmountRaw = amountRaw.toString();
+      } catch (onchainError) {
+        setPledgeError(
+          onchainError instanceof Error
+            ? onchainError.message
+            : "Failed to create on-chain sponsorship escrow."
+        );
+        setPledgeSubmitting(false);
+        return;
+      }
+    }
+
     const { data: pledgeData, error: pledgeInsertError } = await supabase
       .from("pledges")
       .insert({
         goal_id: goalId,
         sponsor_id: session.user.id,
-        amount_cents: Math.round(amountValue * 100),
+        amount_cents: amountCents,
         deadline_at: deadlineISO,
-        min_check_ins: minimumProgressToLegacyMinCheckIns(minimumProgressValue),
-        status: "offered",
+        min_check_ins: minimumProgressLegacy,
+        status,
+        accepted_at: acceptedAt,
+        escrow_tx: escrowTx,
+        onchain_pledge_id: onchainPledgeId,
+        escrow_chain_id: escrowChainId,
+        escrow_token_address: escrowTokenAddress,
+        escrow_amount_raw: escrowAmountRaw,
       })
       .select("id")
       .single();
@@ -640,10 +832,12 @@ export default function PublicGoalPage() {
         goalId: goal.id,
         pledgeId: pledgeData.id,
         data: {
-          amountCents: Math.round(amountValue * 100),
+          amountCents,
           deadlineAt: deadlineISO,
           minimumProgress: minimumProgressValue,
           hasCriteria: Boolean(criteria),
+          escrowedOnchain: status === "accepted",
+          escrowTx,
         },
       });
 
@@ -652,7 +846,11 @@ export default function PublicGoalPage() {
       }
     }
 
-    setPledgeMessage("Sponsorship offer sent.");
+    setPledgeMessage(
+      status === "accepted"
+        ? "USDC sponsorship escrow funded and submitted."
+        : "Sponsorship offer sent."
+    );
     setPledgeSubmitting(false);
     setPledgeAmount(10);
     setPledgeAmountMode("preset");
@@ -754,6 +952,11 @@ export default function PublicGoalPage() {
                 {!isWeightSnapshotGoal && cadenceRollupHint ? (
                   <div className={styles.progressMeta}>{cadenceRollupHint}</div>
                 ) : null}
+                <ProgressTrend
+                  points={progressTrendPoints}
+                  mode={isWeightSnapshotGoal ? "snapshot" : "cumulative"}
+                  unitLabel={goalUnitLabel.toLowerCase()}
+                />
               </div>
             </section>
 
@@ -813,6 +1016,9 @@ export default function PublicGoalPage() {
 
             <section className={styles.card}>
               <div className={styles.sectionTitle}>Sponsor this goal</div>
+              <div className={styles.progressMeta}>
+                Sponsorships are funded in Base USDC escrow when submitted.
+              </div>
               {session ? (
                 isGoalOwnerViewer ? (
                   <div className={styles.empty}>You can’t sponsor your own goal.</div>

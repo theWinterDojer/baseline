@@ -477,11 +477,23 @@ create table if not exists public.pledges (
   approval_at timestamptz,
   settled_at timestamptz,
   escrow_tx text,
+  onchain_pledge_id text,
+  escrow_chain_id integer,
+  escrow_token_address text,
+  escrow_amount_raw text,
+  settlement_tx text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint pledges_amount_min check (amount_cents >= 500),
   constraint pledges_min_check_ins check (min_check_ins is null or min_check_ins >= 0)
 );
+
+alter table public.pledges
+  add column if not exists onchain_pledge_id text,
+  add column if not exists escrow_chain_id integer,
+  add column if not exists escrow_token_address text,
+  add column if not exists escrow_amount_raw text,
+  add column if not exists settlement_tx text;
 
 create table if not exists public.sponsor_criteria (
   id uuid primary key default gen_random_uuid(),
@@ -548,6 +560,7 @@ create index if not exists pledges_goal_id_idx on public.pledges(goal_id);
 create index if not exists pledges_sponsor_id_idx on public.pledges(sponsor_id);
 create index if not exists pledges_status_idx on public.pledges(status);
 create index if not exists pledges_deadline_at_idx on public.pledges(deadline_at);
+create index if not exists pledges_onchain_pledge_id_idx on public.pledges(onchain_pledge_id);
 
 create index if not exists sponsor_criteria_pledge_id_idx on public.sponsor_criteria(pledge_id);
 

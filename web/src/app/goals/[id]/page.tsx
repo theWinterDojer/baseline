@@ -18,6 +18,7 @@ import { useAccount, useChainId, usePublicClient, useWalletClient } from "wagmi"
 import { BASELINE_TAGLINE } from "@/lib/brand";
 import { supabase } from "@/lib/supabaseClient";
 import { logEvent } from "@/lib/eventLogger";
+import ProgressTrend from "@/components/ProgressTrend";
 import {
   habitRegistryAbi,
   mockCompletionNft,
@@ -29,8 +30,10 @@ import {
   isMissingGoalTrackingColumnsError,
   isWeightSnapshotPreset,
 } from "@/lib/goalTracking";
+import { buildProgressTrendPoints } from "@/lib/progressTrend";
 import { cadenceCumulativeHint } from "@/lib/cadenceCopy";
 import { getPresetLabel } from "@/lib/goalPresets";
+import { formatMetricValue } from "@/lib/numberFormat";
 import styles from "./goal.module.css";
 
 type Goal = {
@@ -177,12 +180,6 @@ const parseNonNegativeDecimal = (value: string): number | null => {
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   return parsed;
-};
-
-const formatMetricValue = (value: number) => {
-  const rounded = Math.round(value * 100) / 100;
-  if (Number.isInteger(rounded)) return String(rounded);
-  return rounded.toFixed(2).replace(/\.?0+$/, "");
 };
 
 const isSchemaTrackingConfigured = (nextGoal: Goal) =>
@@ -422,6 +419,18 @@ export default function GoalPage() {
     progressTargetValue,
     startSnapshotProgressValue,
   ]);
+  const progressTrendPoints = useMemo(
+    () =>
+      buildProgressTrendPoints({
+        mode: isWeightSnapshotGoal ? "snapshot" : "cumulative",
+        checkIns: checkIns.map((checkIn) => ({
+          checkInAt: checkIn.check_in_at,
+          progressValue: checkIn.progress_value,
+          progressSnapshotValue: checkIn.progress_snapshot_value,
+        })),
+      }),
+    [checkIns, isWeightSnapshotGoal]
+  );
 
   const isOwner = Boolean(session?.user?.id && goal?.user_id === session.user.id);
   const deleteLockReason = !goal
@@ -1544,6 +1553,11 @@ export default function GoalPage() {
                 {!isWeightSnapshotGoal && cadenceRollupHint ? (
                   <div className={styles.helperText}>{cadenceRollupHint}</div>
                 ) : null}
+                <ProgressTrend
+                  points={progressTrendPoints}
+                  mode={isWeightSnapshotGoal ? "snapshot" : "cumulative"}
+                  unitLabel={goalUnitLabel.toLowerCase()}
+                />
               </div>
             </section>
 

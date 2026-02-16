@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { BASELINE_TAGLINE } from "@/lib/brand";
+import {
+  SPONSORSHIP_NOTIFICATION_EVENT_TYPES,
+  readSponsorshipEmailPreferences,
+  withSponsorshipEmailPreferences,
+  type SponsorshipEmailPreferences,
+  type SponsorshipNotificationEventType,
+} from "@/lib/notificationPreferences";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./settings.module.css";
 
@@ -14,11 +21,39 @@ const isWalletPlaceholderInvalidEmailError = (message: string) => {
   return normalized.includes("wallet_") && normalized.includes("invalid");
 };
 
+const sponsorshipNotificationCopy: Record<
+  SponsorshipNotificationEventType,
+  { title: string; detail: string }
+> = {
+  "pledge.offered": {
+    title: "New sponsorship offers",
+    detail: "Email me when someone offers to sponsor my goal.",
+  },
+  "pledge.accepted": {
+    title: "Offer accepted",
+    detail: "Email me when a goal owner accepts my sponsorship offer.",
+  },
+  "pledge.approved": {
+    title: "Completion approved",
+    detail: "Email me when a sponsor approves goal completion.",
+  },
+  "pledge.settled_no_response": {
+    title: "Auto-settled after no response",
+    detail: "Email me when a sponsorship auto-settles after the review window.",
+  },
+};
+
 export default function SettingsPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [notificationSaving, setNotificationSaving] = useState(false);
+  const [notificationPreferences, setNotificationPreferences] =
+    useState<SponsorshipEmailPreferences | null>(null);
+  const [notificationExpanded, setNotificationExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [finalizingPending, setFinalizingPending] = useState(false);
 
@@ -45,6 +80,20 @@ export default function SettingsPage() {
     }
     return null;
   }, [session?.user?.user_metadata]);
+
+  const storedNotificationPreferences = useMemo(
+    () =>
+      readSponsorshipEmailPreferences(
+        (session?.user?.user_metadata ?? null) as Record<string, unknown> | null
+      ),
+    [session?.user?.user_metadata]
+  );
+
+  const effectiveNotificationPreferences =
+    notificationPreferences ?? storedNotificationPreferences;
+  const enabledNotificationCount = SPONSORSHIP_NOTIFICATION_EVENT_TYPES.filter(
+    (eventType) => effectiveNotificationPreferences[eventType]
+  ).length;
 
   const isPendingVerified = Boolean(
     session?.user?.email_confirmed_at &&
@@ -165,6 +214,23 @@ export default function SettingsPage() {
     }
 
     if (updateError) {
+      if (isWalletPlaceholderInvalidEmailError(updateError.message)) {
+        const { error: metadataOnlyError } = await supabase.auth.updateUser({
+          data: {
+            ...userMetadata,
+            pending_email: nextEmail,
+          },
+        });
+
+        if (!metadataOnlyError) {
+          const { data: sessionData } = await supabase.auth.getSession();
+          setSession(sessionData.session ?? null);
+          setMessage("Check your inbox and confirm the email before it is attached.");
+          setEmail("");
+          setLoading(false);
+          return;
+        }
+      }
       setError(updateError.message);
     } else {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -202,6 +268,47 @@ export default function SettingsPage() {
     setLoading(false);
   };
 
+  const handleNotificationToggle = (eventType: SponsorshipNotificationEventType) => {
+    setNotificationPreferences((current) => ({
+      ...(current ?? storedNotificationPreferences),
+      [eventType]: !(current ?? storedNotificationPreferences)[eventType],
+    }));
+  };
+
+  const handleNotificationPreferencesSave = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!session) {
+      return;
+    }
+
+    setNotificationError(null);
+    setNotificationMessage(null);
+    setNotificationSaving(true);
+
+    const userMetadata = (session.user.user_metadata ?? {}) as Record<string, unknown>;
+
+    const { error: updateError } = await supabase.auth.updateUser({
+      data: withSponsorshipEmailPreferences({
+        metadata: userMetadata,
+        preferences: effectiveNotificationPreferences,
+      }),
+    });
+
+    if (updateError) {
+      setNotificationError(updateError.message);
+      setNotificationSaving(false);
+      setNotificationExpanded(true);
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    setSession(sessionData.session ?? null);
+    setNotificationPreferences(null);
+    setNotificationMessage("Notification settings saved.");
+    setNotificationSaving(false);
+    setNotificationExpanded(false);
+  };
+
   return (
     <div className={styles.page}>
       <div className={styles.container}>
@@ -236,7 +343,10 @@ export default function SettingsPage() {
           </div>
           {attachedEmail ? (
             <div className={styles.pillRow}>
-              <span className={styles.pill}>Email notifications: enabled</span>
+              <span className={styles.pill}>
+                Sponsorship email notifications: {enabledNotificationCount}/
+                {SPONSORSHIP_NOTIFICATION_EVENT_TYPES.length} enabled
+              </span>
             </div>
           ) : null}
           {pendingEmail ? (
@@ -245,38 +355,97 @@ export default function SettingsPage() {
             </div>
           ) : null}
           {session ? (
-            <form className={styles.form} onSubmit={handleAttachEmail}>
-              <div className={styles.field}>
-                <label className={styles.label} htmlFor="recovery-email">
-                  Email address
-                </label>
-                <input
-                  id="recovery-email"
-                  className={styles.input}
-                  type="email"
-                  placeholder="you@domain.com"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-              </div>
-              {error ? <div className={styles.message}>{error}</div> : null}
-              {message ? <div className={`${styles.message} ${styles.success}`}>{message}</div> : null}
-              <div className={styles.buttonRow}>
-                <button className={styles.buttonPrimary} type="submit" disabled={loading}>
-                  {loading ? "Saving..." : attachedEmail ? "Update email" : "Attach email"}
-                </button>
-                {attachedEmail || pendingEmail ? (
+            <>
+              <div className={styles.notificationForm}>
+                <div className={styles.expandableHeader}>
+                  <div>
+                    <div className={styles.sectionTitle}>Sponsorship notifications</div>
+                    <p className={styles.sectionCopy}>
+                      Email sponsorship notifications are opted out by default. Enable only the
+                      updates you want.
+                    </p>
+                  </div>
                   <button
                     className={styles.buttonGhost}
                     type="button"
-                    onClick={handleRemoveEmail}
-                    disabled={loading}
+                    onClick={() => setNotificationExpanded((current) => !current)}
                   >
-                    Remove email
+                    {notificationExpanded ? "Hide options" : "Show options"}
                   </button>
-                ) : null}
+                </div>
+                {!notificationExpanded ? null : (
+                  <form onSubmit={handleNotificationPreferencesSave} className={styles.notificationInnerForm}>
+                    {!attachedEmail ? (
+                      <div className={styles.infoBox}>
+                        Attach an email to receive these notifications.
+                      </div>
+                    ) : null}
+                    <div className={styles.notificationList}>
+                      {SPONSORSHIP_NOTIFICATION_EVENT_TYPES.map((eventType) => (
+                        <label key={eventType} className={styles.notificationItem}>
+                          <input
+                            className={styles.checkbox}
+                            type="checkbox"
+                            checked={effectiveNotificationPreferences[eventType]}
+                            onChange={() => handleNotificationToggle(eventType)}
+                          />
+                          <span>
+                            <span className={styles.notificationLabel}>
+                              {sponsorshipNotificationCopy[eventType].title}
+                            </span>
+                            <span className={styles.notificationDetail}>
+                              {sponsorshipNotificationCopy[eventType].detail}
+                            </span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    {notificationError ? <div className={styles.message}>{notificationError}</div> : null}
+                    {notificationMessage ? (
+                      <div className={`${styles.message} ${styles.success}`}>{notificationMessage}</div>
+                    ) : null}
+                    <div className={styles.buttonRow}>
+                      <button className={styles.buttonPrimary} type="submit" disabled={notificationSaving}>
+                        {notificationSaving ? "Saving..." : "Save notification settings"}
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
-            </form>
+
+              <form className={styles.form} onSubmit={handleAttachEmail}>
+                <div className={styles.field}>
+                  <label className={styles.label} htmlFor="recovery-email">
+                    Email address
+                  </label>
+                  <input
+                    id="recovery-email"
+                    className={styles.input}
+                    type="email"
+                    placeholder="you@domain.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
+                </div>
+                {error ? <div className={styles.message}>{error}</div> : null}
+                {message ? <div className={`${styles.message} ${styles.success}`}>{message}</div> : null}
+                <div className={styles.buttonRow}>
+                  <button className={styles.buttonPrimary} type="submit" disabled={loading}>
+                    {loading ? "Saving..." : attachedEmail ? "Update email" : "Attach email"}
+                  </button>
+                  {attachedEmail || pendingEmail ? (
+                    <button
+                      className={styles.buttonGhost}
+                      type="button"
+                      onClick={handleRemoveEmail}
+                      disabled={loading}
+                    >
+                      Remove email
+                    </button>
+                  ) : null}
+                </div>
+              </form>
+            </>
           ) : (
             <div className={styles.empty}>Sign in with your wallet to manage settings.</div>
           )}

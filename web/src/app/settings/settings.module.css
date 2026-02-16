@@ -160,6 +160,85 @@
   gap: 14px;
 }
 
+.notificationForm {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(90, 61, 43, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.5);
+  padding: 16px;
+}
+
+.notificationInnerForm {
+  display: grid;
+  gap: 14px;
+}
+
+.expandableHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sectionTitle {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #6a5f4f;
+  font-weight: 600;
+}
+
+.sectionCopy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #5e5547;
+}
+
+.infoBox {
+  border: 1px dashed rgba(90, 61, 43, 0.25);
+  border-radius: 12px;
+  background: rgba(255, 236, 180, 0.24);
+  padding: 10px 12px;
+  color: #5e5547;
+  font-size: 13px;
+}
+
+.notificationList {
+  display: grid;
+  gap: 8px;
+}
+
+.notificationItem {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(90, 61, 43, 0.14);
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.checkbox {
+  margin-top: 2px;
+}
+
+.notificationLabel {
+  display: block;
+  font-size: 14px;
+  color: #1f1b16;
+}
+
+.notificationDetail {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #5e5547;
+  line-height: 1.4;
+}
+
 .field {
   display: grid;
   gap: 8px;
@@ -241,5 +320,9 @@
 
   .card {
     padding: 20px;
+  }
+
+  .expandableHeader {
+    flex-direction: column;
   }
 }

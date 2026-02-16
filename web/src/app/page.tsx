@@ -980,26 +980,31 @@ export default function Home() {
           <section className={`${styles.panel} ${styles.delay1}`}>
             {!session ? (
               <>
-                <h1 className={styles.panelHeading}>Start a goal that stays yours.</h1>
+                <h1 className={styles.panelHeading}>Build a goal you can actually keep.</h1>
                 <p className={styles.panelSubheading}>
-                  Baseline is a private-first habit tracker with optional sponsorship. Keep your
-                  progress off-chain, publish only when you want support.
+                  Baseline is a private-first goal tracker with optional sponsorship on Base. Keep
+                  details off-chain and publish only when you want accountability.
                 </p>
                 <div className={styles.heroList}>
                   <span>
-                    <span className={styles.dot} /> Private by default, public by choice
+                    <span className={styles.dot} /> Guided 5-step setup: intent, measurement,
+                    pace, timeline, review
                   </span>
                   <span>
-                    <span className={styles.dot} /> Flexible check-ins, no streak pressure
+                    <span className={styles.dot} /> Flexible check-ins with optional notes and
+                    photos
                   </span>
                   <span>
-                    <span className={styles.dot} /> Deterministic payouts, minimal on-chain data
+                    <span className={styles.dot} /> Minimal on-chain footprint with deterministic
+                    sponsorship settlement
                   </span>
                 </div>
               </>
             ) : (
               <>
-                <h1 className={styles.panelHeading}>Create your first goal</h1>
+                <h1 className={styles.panelHeading}>
+                  {goals.length > 0 ? "Create your next goal" : "Create your first goal"}
+                </h1>
                 <form className={styles.wizard} onSubmit={handleWizardSubmit}>
                   <div className={styles.wizardPanel}>
                     <div className={styles.wizardProgressHeader}>
@@ -1543,10 +1548,10 @@ export default function Home() {
           <section className={`${styles.panel} ${styles.delay2}`}>
             {!session ? (
               <>
-                <h2 className={styles.panelHeading}>Connect your wallet</h2>
+                <h2 className={styles.panelHeading}>Connect your wallet to begin</h2>
                 <p className={styles.panelSubheading}>
-                  Wallet connection is the primary sign-in. Attach email later in settings for
-                  backup access and notifications.
+                  Wallet sign-in is primary on Base mainnet. After sign-in, create goals, log
+                  check-ins, and manage sponsorship email alerts in settings.
                 </p>
                 <div className={styles.walletRow}>
                   <ConnectButton.Custom>
@@ -1583,8 +1588,8 @@ export default function Home() {
                 </div>
                 <div className={styles.walletNote}>
                   {isConnected
-                    ? "Sign in to unlock goal creation and check-ins."
-                    : "Connect a wallet to start."}
+                    ? "Sign in to open your dashboard and goal wizard."
+                    : "Connect a wallet on Base mainnet to start."}
                 </div>
               </>
             ) : (

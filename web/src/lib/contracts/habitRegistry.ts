@@ -24,7 +24,7 @@ export const habitRegistryAbi = [
   {
     type: "function",
     name: "createPledge",
-    stateMutability: "payable",
+    stateMutability: "nonpayable",
     inputs: [
       { name: "commitmentId", type: "uint256" },
       { name: "amount", type: "uint256" },
