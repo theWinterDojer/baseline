@@ -6,11 +6,11 @@
     },
     {
       "path": "/api/pledges/expire-overdue",
-      "schedule": "10 * * * *"
+      "schedule": "10 6 * * *"
     },
     {
       "path": "/api/pledges/settle-overdue",
-      "schedule": "15 * * * *"
+      "schedule": "20 6 * * *"
     }
   ]
 }
