@@ -288,6 +288,7 @@ export default function GoalPage() {
   const [completionUpdating, setCompletionUpdating] = useState(false);
   const [completionMessage, setCompletionMessage] = useState<string | null>(null);
   const [completionError, setCompletionError] = useState<string | null>(null);
+  const [completionWarning, setCompletionWarning] = useState<string | null>(null);
   const [completionNft, setCompletionNft] = useState<CompletionNft | null>(null);
   const [nftMessage, setNftMessage] = useState<string | null>(null);
   const [nftError, setNftError] = useState<string | null>(null);
@@ -433,6 +434,9 @@ export default function GoalPage() {
   );
 
   const isOwner = Boolean(session?.user?.id && goal?.user_id === session.user.id);
+  const canMarkComplete = Boolean(
+    progressTargetValue && progressTargetValue > 0 && progressPercent >= 100
+  );
   const deleteLockReason = !goal
     ? null
     : goal.privacy !== "private"
@@ -1174,6 +1178,16 @@ export default function GoalPage() {
   const handleMarkComplete = async () => {
     if (!goal || !session?.user?.id) return;
     if (goal.status === "completed") return;
+
+    setCompletionWarning(null);
+    if (!canMarkComplete) {
+      setCompletionError(null);
+      setCompletionMessage(null);
+      setCompletionWarning(
+        "Complete this goal through check-ins first. Reach 100% progress before marking it complete."
+      );
+      return;
+    }
 
     const ok = window.confirm("Mark this goal as complete?");
     if (!ok) return;
@@ -2024,6 +2038,9 @@ export default function GoalPage() {
                     </div>
                   </>
                 )}
+                {completionWarning ? (
+                  <div className={styles.warningBox}>{completionWarning}</div>
+                ) : null}
                 {completionError ? (
                   <div className={styles.message}>{completionError}</div>
                 ) : null}
@@ -2070,27 +2087,6 @@ export default function GoalPage() {
                 {nftMessage ? (
                   <div className={`${styles.message} ${styles.success}`}>{nftMessage}</div>
                 ) : null}
-              </section>
-            ) : null}
-
-            {isOwner ? (
-              <section className={styles.card}>
-                <div className={styles.sectionTitle}>Delete goal</div>
-                <div className={styles.notice}>
-                  Deleting permanently removes this goal and its check-ins.
-                </div>
-                {deleteLockReason ? <div className={styles.notice}>{deleteLockReason}</div> : null}
-                {deleteError ? <div className={styles.message}>{deleteError}</div> : null}
-                <div className={styles.buttonRow}>
-                  <button
-                    className={styles.buttonDanger}
-                    type="button"
-                    onClick={handleDeleteGoal}
-                    disabled={Boolean(deleteLockReason) || deleteUpdating}
-                  >
-                    {deleteUpdating ? "Deleting..." : "Delete goal"}
-                  </button>
-                </div>
               </section>
             ) : null}
 
@@ -2287,6 +2283,32 @@ export default function GoalPage() {
                 </div>
               )}
             </section>
+
+            {isOwner ? (
+              <section className={styles.card}>
+                <div className={styles.sectionTitle}>Delete goal</div>
+                <div className={styles.notice}>
+                  Deleting permanently removes this goal and its check-ins.
+                </div>
+                {deleteLockReason ? <div className={styles.notice}>{deleteLockReason}</div> : null}
+                {deleteError ? <div className={styles.message}>{deleteError}</div> : null}
+                <div className={styles.buttonRow}>
+                  <button
+                    className={styles.buttonDanger}
+                    type="button"
+                    onClick={handleDeleteGoal}
+                    disabled={
+                      !goal ||
+                      goal.privacy !== "private" ||
+                      Boolean(deleteLockReason) ||
+                      deleteUpdating
+                    }
+                  >
+                    {deleteUpdating ? "Deleting..." : "Delete goal"}
+                  </button>
+                </div>
+              </section>
+            ) : null}
           </>
         ) : (
           <div className={styles.card}>Goal not found.</div>
