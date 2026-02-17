@@ -576,7 +576,7 @@ export default function PublicGoalPage() {
           account: connectedAddress as Address,
           address: HABIT_REGISTRY_ADDRESS,
           abi: habitRegistryAbi,
-          functionName: "settlePledge",
+          functionName: "settlePledgeBySponsor",
           args: [onchainPledgeId],
           chain: base,
         });

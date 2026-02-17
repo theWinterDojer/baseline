@@ -1182,6 +1182,74 @@ export default function GoalPage() {
     setCompletionError(null);
     setCompletionMessage(null);
 
+    const accountAddress = (walletClient?.account?.address ??
+      connectedAddress ??
+      walletAddress) as Address | undefined;
+    let completionRecordedOnchain = false;
+    let completionAlreadyRecordedOnchain = false;
+
+    if (goal.privacy === "public" && HAS_HABIT_REGISTRY_ADDRESS_CONFIG) {
+      if (!goal.commitment_id) {
+        setCompletionError(
+          "Public goal is missing an on-chain commitment anchor and cannot be completed yet."
+        );
+        setCompletionUpdating(false);
+        return;
+      }
+      if (!HABIT_REGISTRY_ADDRESS) {
+        setCompletionError("Invalid NEXT_PUBLIC_HABIT_REGISTRY_ADDRESS.");
+        setCompletionUpdating(false);
+        return;
+      }
+      if (!walletClient || !publicClient || !accountAddress) {
+        setCompletionError("Wallet client unavailable for on-chain completion.");
+        setCompletionUpdating(false);
+        return;
+      }
+      if (activeChainId !== BASE_MAINNET_CHAIN_ID) {
+        setCompletionError("Switch wallet network to Base mainnet to complete this goal.");
+        setCompletionUpdating(false);
+        return;
+      }
+
+      let commitmentIdBigInt: bigint;
+      try {
+        commitmentIdBigInt = BigInt(goal.commitment_id);
+      } catch {
+        setCompletionError("Goal commitment id is invalid for on-chain completion.");
+        setCompletionUpdating(false);
+        return;
+      }
+
+      try {
+        const simulation = await publicClient.simulateContract({
+          account: accountAddress,
+          address: HABIT_REGISTRY_ADDRESS,
+          abi: habitRegistryAbi,
+          functionName: "markCommitmentCompleted",
+          args: [commitmentIdBigInt],
+          chain: base,
+        });
+        const completionTxHash = await walletClient.writeContract(simulation.request);
+        await publicClient.waitForTransactionReceipt({ hash: completionTxHash });
+        completionRecordedOnchain = true;
+      } catch (completionError) {
+        const completionErrorMessage =
+          completionError instanceof Error ? completionError.message : "Unknown error";
+        if (completionErrorMessage.toLowerCase().includes("commitmentalreadycompleted")) {
+          completionAlreadyRecordedOnchain = true;
+        } else {
+          setCompletionError(
+            completionError instanceof Error
+              ? completionError.message
+              : "Failed to mark on-chain commitment as completed."
+          );
+          setCompletionUpdating(false);
+          return;
+        }
+      }
+    }
+
     const completedAt = new Date().toISOString();
     let { data, error: updateError } = await supabase
       .from("goals")
@@ -1216,7 +1284,13 @@ export default function GoalPage() {
     } as Goal;
     setGoal(nextGoal);
     setEditForm(toEditForm(nextGoal));
-    setCompletionMessage("Goal marked complete.");
+    setCompletionMessage(
+      completionRecordedOnchain
+        ? "Goal marked complete. On-chain completion recorded."
+        : completionAlreadyRecordedOnchain
+          ? "Goal marked complete. On-chain completion was already recorded."
+          : "Goal marked complete."
+    );
     setCompletionUpdating(false);
   };
 

@@ -9,6 +9,19 @@ import { supabaseAdmin } from "@/lib/supabaseServer";
 
 const REVIEW_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
+const isContractSkipCondition = (error: unknown): boolean => {
+  const message =
+    error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes("commitmentnotcompleted") ||
+    message.includes("deadlinenotreached") ||
+    message.includes("settlementwindowopen") ||
+    message.includes("minimumcheckinsnotmet") ||
+    message.includes("pledgeinactive") ||
+    message.includes("pledgenotfound")
+  );
+};
+
 type PledgeRow = {
   id: string;
   goal_id: string;
@@ -76,6 +89,25 @@ const settleOverduePledges = async () => {
     chain: base,
     transport,
   });
+  let reviewWindowMs = REVIEW_WINDOW_MS;
+  try {
+    const reviewWindowSeconds = await publicClient.readContract({
+      address: HABIT_REGISTRY_ADDRESS,
+      abi: habitRegistryAbi,
+      functionName: "reviewWindowSeconds",
+      args: [],
+    });
+    const maxSafeSeconds = Math.floor(Number.MAX_SAFE_INTEGER / 1000);
+    if (
+      typeof reviewWindowSeconds === "bigint" &&
+      reviewWindowSeconds > BigInt(0) &&
+      reviewWindowSeconds <= BigInt(maxSafeSeconds)
+    ) {
+      reviewWindowMs = Number(reviewWindowSeconds) * 1000;
+    }
+  } catch {
+    // Fallback to default review window if contract read is unavailable.
+  }
 
   const { data: pledges, error: pledgesError } = await supabaseAdmin
     .from("pledges")
@@ -126,7 +158,7 @@ const settleOverduePledges = async () => {
     const completedAtMs = new Date(goal.completed_at).getTime();
     const deadlineMs = new Date(pledge.deadline_at).getTime();
     const reviewExpired =
-      Number.isFinite(completedAtMs) && completedAtMs + REVIEW_WINDOW_MS <= now;
+      Number.isFinite(completedAtMs) && completedAtMs + reviewWindowMs <= now;
     const deadlineExpired = Number.isFinite(deadlineMs) && deadlineMs <= now;
 
     if (!reviewExpired || !deadlineExpired) {
@@ -148,7 +180,7 @@ const settleOverduePledges = async () => {
         account: relayerAccount.address,
         address: HABIT_REGISTRY_ADDRESS,
         abi: habitRegistryAbi,
-        functionName: "settlePledge",
+        functionName: "settlePledgeNoResponse",
         args: [onchainPledgeId],
         chain: base,
       });
@@ -194,11 +226,15 @@ const settleOverduePledges = async () => {
 
       settled += 1;
     } catch (error) {
-      failed += 1;
-      failures.push({
-        pledgeId: pledge.id,
-        error: error instanceof Error ? error.message : "Unknown settlement error.",
-      });
+      if (isContractSkipCondition(error)) {
+        skipped += 1;
+      } else {
+        failed += 1;
+        failures.push({
+          pledgeId: pledge.id,
+          error: error instanceof Error ? error.message : "Unknown settlement error.",
+        });
+      }
     }
   }
 

@@ -1,6 +1,13 @@
 export const habitRegistryAbi = [
   {
     type: "function",
+    name: "reviewWindowSeconds",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "createCommitment",
     stateMutability: "nonpayable",
     inputs: [
@@ -32,6 +39,27 @@ export const habitRegistryAbi = [
       { name: "minCheckIns", type: "uint256" },
     ],
     outputs: [{ name: "pledgeId", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "markCommitmentCompleted",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "commitmentId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "settlePledgeBySponsor",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "pledgeId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "settlePledgeNoResponse",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "pledgeId", type: "uint256" }],
+    outputs: [],
   },
   {
     type: "function",
