@@ -68,6 +68,9 @@ export const toWalletActionError = ({
   if (raw.toLowerCase().includes("insufficient funds")) {
     return "Insufficient funds to complete this transaction.";
   }
+  if (raw.toLowerCase().includes("connector not connected")) {
+    return "Connect your wallet to continue.";
+  }
   return truncateError(raw) ?? fallback;
 };
 

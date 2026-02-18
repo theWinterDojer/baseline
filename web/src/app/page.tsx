@@ -12,7 +12,7 @@ import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { SiweMessage } from "siwe";
-import { useAccount, useChainId, useDisconnect, useSignMessage } from "wagmi";
+import { useAccount, useChainId, useSignMessage } from "wagmi";
 import { supabase } from "@/lib/supabaseClient";
 import { logEvent } from "@/lib/eventLogger";
 import { BASELINE_TAGLINE } from "@/lib/brand";
@@ -30,6 +30,7 @@ import {
 } from "@/lib/goalTracking";
 import { BASE_MAINNET_CHAIN_ID } from "@/lib/sponsorshipChain";
 import { toWalletActionError } from "@/lib/walletErrors";
+import { clearWalletConnectionPersistence } from "@/lib/walletConnectionPersistence";
 import styles from "./page.module.css";
 
 type Goal = {
@@ -215,7 +216,6 @@ const notificationGoalHref = (eventType: string, goalId: string | null): string 
 export default function Home() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const { disconnect } = useDisconnect();
   const { signMessageAsync } = useSignMessage();
   const [session, setSession] = useState<Session | null>(null);
   const [initializing, setInitializing] = useState(true);
@@ -224,7 +224,6 @@ export default function Home() {
   const [goalsLoading, setGoalsLoading] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [walletAuthLoading, setWalletAuthLoading] = useState(false);
-  const [lastAuthAddress, setLastAuthAddress] = useState<string | null>(null);
   const [walletAuthError, setWalletAuthError] = useState<string | null>(null);
   const [goalWizardStep, setGoalWizardStep] = useState(0);
   const [measurementLevel, setMeasurementLevel] = useState<MeasurementLevel>("type");
@@ -247,7 +246,6 @@ export default function Home() {
   const [goalMessage, setGoalMessage] = useState<string | null>(null);
   const wizardHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const goalFeedbackRef = useRef<HTMLDivElement | null>(null);
-  const autoAuthAttemptedKeyRef = useRef<string | null>(null);
   const walletAuthInFlightRef = useRef(false);
 
   const walletAddress =
@@ -575,12 +573,6 @@ export default function Home() {
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       setSession(data.session ?? null);
-      const sessionWalletAddress = data.session?.user?.user_metadata?.wallet_address;
-      if (typeof sessionWalletAddress === "string" && sessionWalletAddress.trim()) {
-        setLastAuthAddress(sessionWalletAddress.toLowerCase());
-      } else {
-        setLastAuthAddress(null);
-      }
       setInitializing(false);
       void Promise.all([
         loadGoals(data.session ?? null),
@@ -592,20 +584,12 @@ export default function Home() {
       (_event, newSession) => {
         setSession(newSession);
         if (newSession) {
-          const sessionWalletAddress = newSession.user?.user_metadata?.wallet_address;
-          if (typeof sessionWalletAddress === "string" && sessionWalletAddress.trim()) {
-            setLastAuthAddress(sessionWalletAddress.toLowerCase());
-          } else {
-            setLastAuthAddress(null);
-          }
           setWalletAuthError(null);
           void Promise.all([loadGoals(newSession), loadNotifications(newSession)]);
         } else {
           setGoals([]);
           setNotifications([]);
-          setLastAuthAddress(null);
           setWalletAuthError(null);
-          autoAuthAttemptedKeyRef.current = null;
         }
       }
     );
@@ -616,7 +600,7 @@ export default function Home() {
     };
   }, []);
 
-  const signInWithWallet = useCallback(async (source: "auto" | "manual" = "manual") => {
+  const signInWithWallet = useCallback(async () => {
     if (!address) {
       return;
     }
@@ -680,7 +664,6 @@ export default function Home() {
       if (error) {
         throw error;
       }
-      setLastAuthAddress(address.toLowerCase());
       setWalletAuthError(null);
     } catch (error) {
       console.warn(
@@ -694,9 +677,6 @@ export default function Home() {
           userRejected: "Wallet sign-in was canceled in wallet.",
         })
       );
-      if (source === "auto") {
-        autoAuthAttemptedKeyRef.current = `${address.toLowerCase()}:${chainId}`;
-      }
     } finally {
       walletAuthInFlightRef.current = false;
       setWalletAuthLoading(false);
@@ -704,30 +684,10 @@ export default function Home() {
   }, [address, chainId, signMessageAsync]);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    disconnect();
     setWalletAuthError(null);
-    autoAuthAttemptedKeyRef.current = null;
+    await supabase.auth.signOut();
+    clearWalletConnectionPersistence();
   };
-
-  useEffect(() => {
-    if (initializing || !isConnected || !address || session || walletAuthLoading) return;
-    const normalizedAddress = address.toLowerCase();
-    const autoAuthKey = `${normalizedAddress}:${chainId}`;
-    if (lastAuthAddress?.toLowerCase() === normalizedAddress) return;
-    if (autoAuthAttemptedKeyRef.current === autoAuthKey) return;
-    autoAuthAttemptedKeyRef.current = autoAuthKey;
-    void signInWithWallet("auto");
-  }, [
-    address,
-    chainId,
-    initializing,
-    isConnected,
-    lastAuthAddress,
-    session,
-    walletAuthLoading,
-    signInWithWallet,
-  ]);
 
   const handleWizardBack = () => {
     setGoalError(null);
@@ -1635,7 +1595,7 @@ export default function Home() {
                     <button
                       className={styles.buttonPrimary}
                       type="button"
-                      onClick={() => void signInWithWallet("manual")}
+                      onClick={() => void signInWithWallet()}
                       disabled={walletAuthLoading}
                     >
                       {walletAuthLoading ? "Signing in..." : "Sign in with wallet"}
