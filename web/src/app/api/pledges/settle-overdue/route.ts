@@ -200,7 +200,10 @@ const settleOverduePledges = async () => {
 
       if (updateError) {
         failed += 1;
-        failures.push({ pledgeId: pledge.id, error: updateError.message });
+        failures.push({
+          pledgeId: pledge.id,
+          error: `Settlement tx confirmed (${txHash}) but DB update failed: ${updateError.message}`,
+        });
         continue;
       }
 
@@ -220,7 +223,10 @@ const settleOverduePledges = async () => {
 
       if (eventError) {
         failed += 1;
-        failures.push({ pledgeId: pledge.id, error: eventError.message });
+        failures.push({
+          pledgeId: pledge.id,
+          error: `Settlement tx confirmed (${txHash}) but event insert failed: ${eventError.message}`,
+        });
         continue;
       }
 

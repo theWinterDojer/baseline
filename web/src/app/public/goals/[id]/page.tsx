@@ -33,6 +33,7 @@ import {
   minimumProgressToLegacyMinCheckIns,
   parseMinimumProgressInput,
 } from "@/lib/sponsorshipThreshold";
+import { toPostTxPersistenceError, toWalletActionError } from "@/lib/walletErrors";
 import styles from "./publicGoal.module.css";
 
 type Goal = {
@@ -584,9 +585,11 @@ export default function PublicGoalPage() {
         await publicClient.waitForTransactionReceipt({ hash: settlementTx });
       } catch (settleError) {
         setSponsorError(
-          settleError instanceof Error
-            ? settleError.message
-            : "Failed to settle sponsorship on-chain."
+          toWalletActionError({
+            error: settleError,
+            fallback: "Failed to settle sponsorship on-chain.",
+            userRejected: "Settlement transaction was canceled in wallet.",
+          })
         );
         setApprovingId(null);
         return;
@@ -604,7 +607,16 @@ export default function PublicGoalPage() {
       .eq("id", pledgeId);
 
     if (updateError) {
-      setSponsorError(updateError.message);
+      if (settlementTx) {
+        setSponsorError(
+          toPostTxPersistenceError({
+            action: "sponsorship settlement record",
+            txHash: settlementTx,
+          })
+        );
+      } else {
+        setSponsorError(updateError.message);
+      }
       setApprovingId(null);
       return;
     }
@@ -773,9 +785,11 @@ export default function PublicGoalPage() {
         escrowAmountRaw = amountRaw.toString();
       } catch (onchainError) {
         setPledgeError(
-          onchainError instanceof Error
-            ? onchainError.message
-            : "Failed to create on-chain sponsorship escrow."
+          toWalletActionError({
+            error: onchainError,
+            fallback: "Failed to create on-chain sponsorship escrow.",
+            userRejected: "Sponsorship transaction was canceled in wallet.",
+          })
         );
         setPledgeSubmitting(false);
         return;
@@ -802,12 +816,22 @@ export default function PublicGoalPage() {
       .single();
 
     if (pledgeInsertError || !pledgeData?.id) {
-      setPledgeError(pledgeInsertError?.message ?? "Failed to create pledge.");
+      if (status === "accepted" && escrowTx) {
+        setPledgeError(
+          toPostTxPersistenceError({
+            action: "pledge record",
+            txHash: escrowTx,
+          })
+        );
+      } else {
+        setPledgeError(pledgeInsertError?.message ?? "Failed to create pledge.");
+      }
       setPledgeSubmitting(false);
       return;
     }
 
     const criteria = criteriaText.trim();
+    let criteriaSaveFailed = false;
     if (criteria) {
       const { error: criteriaError } = await supabase
         .from("sponsor_criteria")
@@ -817,10 +841,8 @@ export default function PublicGoalPage() {
         });
 
       if (criteriaError) {
-        await supabase.from("pledges").delete().eq("id", pledgeData.id);
-        setPledgeError("Failed to save sponsor criteria. Please try again.");
-        setPledgeSubmitting(false);
-        return;
+        console.warn("Failed to save sponsor criteria", criteriaError.message);
+        criteriaSaveFailed = true;
       }
     }
 
@@ -835,7 +857,7 @@ export default function PublicGoalPage() {
           amountCents,
           deadlineAt: deadlineISO,
           minimumProgress: minimumProgressValue,
-          hasCriteria: Boolean(criteria),
+          hasCriteria: Boolean(criteria) && !criteriaSaveFailed,
           escrowedOnchain: status === "accepted",
           escrowTx,
         },
@@ -847,9 +869,13 @@ export default function PublicGoalPage() {
     }
 
     setPledgeMessage(
-      status === "accepted"
-        ? "USDC sponsorship escrow funded and submitted."
-        : "Sponsorship offer sent."
+      criteriaSaveFailed
+        ? status === "accepted"
+          ? "USDC sponsorship escrow funded and submitted. Criteria text could not be saved."
+          : "Sponsorship offer sent. Criteria text could not be saved."
+        : status === "accepted"
+          ? "USDC sponsorship escrow funded and submitted."
+          : "Sponsorship offer sent."
     );
     setPledgeSubmitting(false);
     setPledgeAmount(10);
@@ -1044,22 +1070,32 @@ export default function PublicGoalPage() {
                           ${amount}
                         </button>
                       ))}
-                      <div className={styles.customAmount}>
+                      <label
+                        htmlFor="pledge-custom-amount"
+                        className={`${styles.customAmount} ${
+                          pledgeAmountMode === "custom" ? styles.customAmountActive : ""
+                        }`}
+                      >
                         <span className={styles.customLabel}>Custom</span>
+                        <span className={styles.customDivider} aria-hidden="true" />
+                        <span className={styles.customPrefix}>$</span>
                         <input
+                          id="pledge-custom-amount"
                           type="number"
                           min="5"
                           step="1"
-                          className={styles.input}
+                          className={styles.customInput}
                           value={customAmount}
                           onChange={(event) => {
                             setCustomAmount(event.target.value);
                             setPledgeAmountMode("custom");
                           }}
-                          placeholder="5+"
+                          onFocus={() => setPledgeAmountMode("custom")}
+                          placeholder="5"
                         />
-                      </div>
+                      </label>
                     </div>
+                    <div className={styles.fieldHint}>Custom amount must be at least $5.</div>
                   </div>
 
                   <div className={styles.row}>

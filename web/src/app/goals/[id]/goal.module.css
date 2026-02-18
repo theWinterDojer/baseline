@@ -361,6 +361,9 @@
 .message {
   font-size: 13px;
   color: #7a3d2d;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .inlineLink {

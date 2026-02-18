@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { SiweMessage } from "siwe";
+import { BASE_MAINNET_CHAIN_ID } from "@/lib/sponsorshipChain";
 import { supabaseAdmin, supabaseServer } from "@/lib/supabaseServer";
 import {
   isWalletPlaceholderEmail,
@@ -102,6 +103,13 @@ export async function POST(request: Request) {
     }
   } catch {
     return NextResponse.json({ error: "SIWE verification failed." }, { status: 401 });
+  }
+
+  if (siweMessage.chainId !== BASE_MAINNET_CHAIN_ID) {
+    return NextResponse.json(
+      { error: "SIWE sign-in is restricted to Base mainnet (chainId 8453)." },
+      { status: 401 }
+    );
   }
 
   const address = siweMessage.address.toLowerCase();

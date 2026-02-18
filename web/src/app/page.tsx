@@ -28,6 +28,8 @@ import {
   isWeightSnapshotPreset,
   toLegacyCompatibleGoalTrackingFields,
 } from "@/lib/goalTracking";
+import { BASE_MAINNET_CHAIN_ID } from "@/lib/sponsorshipChain";
+import { toWalletActionError } from "@/lib/walletErrors";
 import styles from "./page.module.css";
 
 type Goal = {
@@ -223,6 +225,7 @@ export default function Home() {
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [walletAuthLoading, setWalletAuthLoading] = useState(false);
   const [lastAuthAddress, setLastAuthAddress] = useState<string | null>(null);
+  const [walletAuthError, setWalletAuthError] = useState<string | null>(null);
   const [goalWizardStep, setGoalWizardStep] = useState(0);
   const [measurementLevel, setMeasurementLevel] = useState<MeasurementLevel>("type");
   const [wizardMotionDirection, setWizardMotionDirection] =
@@ -244,6 +247,8 @@ export default function Home() {
   const [goalMessage, setGoalMessage] = useState<string | null>(null);
   const wizardHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const goalFeedbackRef = useRef<HTMLDivElement | null>(null);
+  const autoAuthAttemptedKeyRef = useRef<string | null>(null);
+  const walletAuthInFlightRef = useRef(false);
 
   const walletAddress =
     (session?.user?.user_metadata?.wallet_address as string | undefined) ??
@@ -570,6 +575,12 @@ export default function Home() {
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       setSession(data.session ?? null);
+      const sessionWalletAddress = data.session?.user?.user_metadata?.wallet_address;
+      if (typeof sessionWalletAddress === "string" && sessionWalletAddress.trim()) {
+        setLastAuthAddress(sessionWalletAddress.toLowerCase());
+      } else {
+        setLastAuthAddress(null);
+      }
       setInitializing(false);
       void Promise.all([
         loadGoals(data.session ?? null),
@@ -581,11 +592,20 @@ export default function Home() {
       (_event, newSession) => {
         setSession(newSession);
         if (newSession) {
+          const sessionWalletAddress = newSession.user?.user_metadata?.wallet_address;
+          if (typeof sessionWalletAddress === "string" && sessionWalletAddress.trim()) {
+            setLastAuthAddress(sessionWalletAddress.toLowerCase());
+          } else {
+            setLastAuthAddress(null);
+          }
+          setWalletAuthError(null);
           void Promise.all([loadGoals(newSession), loadNotifications(newSession)]);
         } else {
           setGoals([]);
           setNotifications([]);
           setLastAuthAddress(null);
+          setWalletAuthError(null);
+          autoAuthAttemptedKeyRef.current = null;
         }
       }
     );
@@ -596,13 +616,21 @@ export default function Home() {
     };
   }, []);
 
-  const signInWithWallet = useCallback(async () => {
+  const signInWithWallet = useCallback(async (source: "auto" | "manual" = "manual") => {
     if (!address) {
       return;
     }
+    if (walletAuthInFlightRef.current) {
+      return;
+    }
+    if (chainId !== BASE_MAINNET_CHAIN_ID) {
+      setWalletAuthError("Switch wallet network to Base mainnet to sign in.");
+      return;
+    }
 
+    walletAuthInFlightRef.current = true;
     setWalletAuthLoading(true);
-    setLastAuthAddress(address.toLowerCase());
+    setWalletAuthError(null);
 
     try {
       const nonceResponse = await fetch("/api/auth/siwe/nonce", {
@@ -652,13 +680,25 @@ export default function Home() {
       if (error) {
         throw error;
       }
-
+      setLastAuthAddress(address.toLowerCase());
+      setWalletAuthError(null);
     } catch (error) {
       console.warn(
         "Wallet sign-in failed",
         error instanceof Error ? error.message : error
       );
+      setWalletAuthError(
+        toWalletActionError({
+          error,
+          fallback: "Wallet sign-in failed. Please try again.",
+          userRejected: "Wallet sign-in was canceled in wallet.",
+        })
+      );
+      if (source === "auto") {
+        autoAuthAttemptedKeyRef.current = `${address.toLowerCase()}:${chainId}`;
+      }
     } finally {
+      walletAuthInFlightRef.current = false;
       setWalletAuthLoading(false);
     }
   }, [address, chainId, signMessageAsync]);
@@ -666,14 +706,21 @@ export default function Home() {
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     disconnect();
+    setWalletAuthError(null);
+    autoAuthAttemptedKeyRef.current = null;
   };
 
   useEffect(() => {
     if (initializing || !isConnected || !address || session || walletAuthLoading) return;
-    if (lastAuthAddress?.toLowerCase() === address.toLowerCase()) return;
-    void signInWithWallet();
+    const normalizedAddress = address.toLowerCase();
+    const autoAuthKey = `${normalizedAddress}:${chainId}`;
+    if (lastAuthAddress?.toLowerCase() === normalizedAddress) return;
+    if (autoAuthAttemptedKeyRef.current === autoAuthKey) return;
+    autoAuthAttemptedKeyRef.current = autoAuthKey;
+    void signInWithWallet("auto");
   }, [
     address,
+    chainId,
     initializing,
     isConnected,
     lastAuthAddress,
@@ -962,17 +1009,26 @@ export default function Home() {
             <div className={styles.tagline}>{BASELINE_TAGLINE}</div>
           </div>
           <div className={styles.headerRight}>
-            {session ? (
-              <div className={styles.buttonRow}>
-                <span className={styles.pill}>{userLabel}</span>
-                <Link className={`${styles.buttonGhost} ${styles.linkButton}`} href="/settings">
-                  Settings
+            <div className={styles.buttonRow}>
+              {session ? (
+                <>
+                  <span className={styles.pill}>{userLabel}</span>
+                  <Link className={`${styles.buttonGhost} ${styles.linkButton}`} href="/discover">
+                    Discover
+                  </Link>
+                  <Link className={`${styles.buttonGhost} ${styles.linkButton}`} href="/settings">
+                    Settings
+                  </Link>
+                  <button className={styles.buttonGhost} onClick={handleSignOut}>
+                    Sign out
+                  </button>
+                </>
+              ) : (
+                <Link className={`${styles.buttonGhost} ${styles.linkButton}`} href="/discover">
+                  Discover
                 </Link>
-                <button className={styles.buttonGhost} onClick={handleSignOut}>
-                  Sign out
-                </button>
-              </div>
-            ) : null}
+              )}
+            </div>
           </div>
         </header>
 
@@ -1579,7 +1635,7 @@ export default function Home() {
                     <button
                       className={styles.buttonPrimary}
                       type="button"
-                      onClick={signInWithWallet}
+                      onClick={() => void signInWithWallet("manual")}
                       disabled={walletAuthLoading}
                     >
                       {walletAuthLoading ? "Signing in..." : "Sign in with wallet"}
@@ -1591,6 +1647,7 @@ export default function Home() {
                     ? "Sign in to open your dashboard and goal wizard."
                     : "Connect a wallet on Base mainnet to start."}
                 </div>
+                {walletAuthError ? <div className={styles.message}>{walletAuthError}</div> : null}
               </>
             ) : (
               <>
@@ -1668,11 +1725,6 @@ export default function Home() {
                   </div>
                 )}
                 {goalError ? <div className={styles.message}>{goalError}</div> : null}
-                <div className={`${styles.buttonRow} ${styles.discoverCtaRow}`}>
-                  <Link className={`${styles.buttonGhost} ${styles.linkButton}`} href="/discover">
-                    Browse public goals
-                  </Link>
-                </div>
               </>
             )}
           </section>

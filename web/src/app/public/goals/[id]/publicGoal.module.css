@@ -237,20 +237,25 @@
 }
 
 .amountGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
 }
 
 .amountButton {
+  min-width: 84px;
+  height: 40px;
   border-radius: 999px;
   border: 1px solid rgba(90, 61, 43, 0.25);
   background: rgba(255, 255, 255, 0.85);
-  padding: 8px 12px;
+  padding: 0 14px;
   font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
   color: #4f4639;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
 }
 
 .amountButton:hover {
@@ -265,15 +270,78 @@
 }
 
 .customAmount {
-  display: grid;
-  gap: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  border: 1px solid rgba(90, 61, 43, 0.25);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 0 12px;
+  min-width: 156px;
+}
+
+.customAmountActive {
+  background: rgba(255, 250, 234, 0.9);
+  border-color: rgba(90, 61, 43, 0.35);
+}
+
+.customAmount:focus-within {
+  border-color: rgba(90, 61, 43, 0.4);
+  box-shadow: 0 0 0 2px rgba(255, 236, 180, 0.5);
 }
 
 .customLabel {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: none;
   color: #6a5f4f;
+  white-space: nowrap;
+}
+
+.customDivider {
+  width: 1px;
+  height: 16px;
+  background: rgba(90, 61, 43, 0.18);
+}
+
+.customPrefix {
+  font-size: 14px;
+  color: #5a3d2b;
+  line-height: 1;
+}
+
+.customInput {
+  width: 58px;
+  min-width: 42px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: #1b1a17;
+  padding: 0;
+}
+
+.customInput::placeholder {
+  color: #908471;
+}
+
+.customInput:focus {
+  outline: none;
+}
+
+.customInput::-webkit-outer-spin-button,
+.customInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.customInput[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.fieldHint {
+  font-size: 12px;
+  color: #756957;
 }
 
 .buttonPrimary {
@@ -292,6 +360,9 @@
 .message {
   font-size: 13px;
   color: #7a3d2d;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .success {
@@ -332,5 +403,19 @@
 
   .card {
     padding: 20px;
+  }
+
+  .amountButton {
+    min-width: 72px;
+    height: 38px;
+    padding: 0 12px;
+  }
+
+  .customAmount {
+    min-width: 140px;
+  }
+
+  .customInput {
+    width: 48px;
   }
 }

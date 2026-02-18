@@ -34,6 +34,7 @@ import { buildProgressTrendPoints } from "@/lib/progressTrend";
 import { cadenceCumulativeHint } from "@/lib/cadenceCopy";
 import { getPresetLabel } from "@/lib/goalPresets";
 import { formatMetricValue } from "@/lib/numberFormat";
+import { toPostTxPersistenceError, toWalletActionError } from "@/lib/walletErrors";
 import styles from "./goal.module.css";
 
 type Goal = {
@@ -593,6 +594,14 @@ export default function GoalPage() {
         .single();
 
       if (updateError || !updatedGoal) {
+        if (isRealTxHash(txHash)) {
+          throw new Error(
+            toPostTxPersistenceError({
+              action: "goal commitment anchor",
+              txHash,
+            })
+          );
+        }
         throw new Error(updateError?.message ?? "Failed to persist commitment anchor.");
       }
 
@@ -808,9 +817,11 @@ export default function GoalPage() {
         anchorCreatedForLegacyPublicGoal = anchorResult.created;
       } catch (anchorError) {
         setSubmitError(
-          anchorError instanceof Error
-            ? anchorError.message
-            : "Failed to create commitment anchor for this public goal."
+          toWalletActionError({
+            error: anchorError,
+            fallback: "Failed to create commitment anchor for this public goal.",
+            userRejected: "Commitment anchor transaction was canceled in wallet.",
+          })
         );
         setSubmittingCheckIn(false);
         return;
@@ -951,9 +962,11 @@ export default function GoalPage() {
           await supabase.storage.from(CHECK_IN_IMAGES_BUCKET).remove([uploadedImagePath]);
         }
         setSubmitError(
-          onchainError instanceof Error
-            ? onchainError.message
-            : "Failed to submit on-chain check-in proof."
+          toWalletActionError({
+            error: onchainError,
+            fallback: "Failed to submit on-chain check-in proof.",
+            userRejected: "Check-in transaction was canceled in wallet.",
+          })
         );
         setSubmittingCheckIn(false);
         return;
@@ -1043,6 +1056,13 @@ export default function GoalPage() {
         setSubmitError(
           "Database schema is out of date for hour-based check-ins. Apply the latest supabase/schema.sql, then try again."
         );
+      } else if (onchainAnchored && onchainTxHash && isRealTxHash(onchainTxHash)) {
+        setSubmitError(
+          toPostTxPersistenceError({
+            action: "check-in record",
+            txHash: onchainTxHash,
+          })
+        );
       } else {
         setSubmitError(insertError.message);
       }
@@ -1131,9 +1151,11 @@ export default function GoalPage() {
         commitmentCreated = anchorResult.created;
       } catch (anchorError) {
         setPrivacyError(
-          anchorError instanceof Error
-            ? anchorError.message
-            : "Failed to create commitment anchor."
+          toWalletActionError({
+            error: anchorError,
+            fallback: "Failed to create commitment anchor.",
+            userRejected: "Commitment anchor transaction was canceled in wallet.",
+          })
         );
         setPrivacyUpdating(false);
         return;
@@ -1201,6 +1223,7 @@ export default function GoalPage() {
       walletAddress) as Address | undefined;
     let completionRecordedOnchain = false;
     let completionAlreadyRecordedOnchain = false;
+    let completionTxHash: Hex | null = null;
 
     if (goal.privacy === "public" && HAS_HABIT_REGISTRY_ADDRESS_CONFIG) {
       if (!goal.commitment_id) {
@@ -1244,8 +1267,9 @@ export default function GoalPage() {
           args: [commitmentIdBigInt],
           chain: base,
         });
-        const completionTxHash = await walletClient.writeContract(simulation.request);
-        await publicClient.waitForTransactionReceipt({ hash: completionTxHash });
+        const completionTx = await walletClient.writeContract(simulation.request);
+        await publicClient.waitForTransactionReceipt({ hash: completionTx });
+        completionTxHash = completionTx;
         completionRecordedOnchain = true;
       } catch (completionError) {
         const completionErrorMessage =
@@ -1254,9 +1278,11 @@ export default function GoalPage() {
           completionAlreadyRecordedOnchain = true;
         } else {
           setCompletionError(
-            completionError instanceof Error
-              ? completionError.message
-              : "Failed to mark on-chain commitment as completed."
+            toWalletActionError({
+              error: completionError,
+              fallback: "Failed to mark on-chain commitment as completed.",
+              userRejected: "Completion transaction was canceled in wallet.",
+            })
           );
           setCompletionUpdating(false);
           return;
@@ -1287,7 +1313,16 @@ export default function GoalPage() {
     }
 
     if (updateError) {
-      setCompletionError(updateError.message);
+      if (completionTxHash && isRealTxHash(completionTxHash)) {
+        setCompletionError(
+          toPostTxPersistenceError({
+            action: "goal completion status",
+            txHash: completionTxHash,
+          })
+        );
+      } else {
+        setCompletionError(updateError.message);
+      }
       setCompletionUpdating(false);
       return;
     }
