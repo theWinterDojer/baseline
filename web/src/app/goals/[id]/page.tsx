@@ -61,6 +61,7 @@ type Goal = {
   commitment_id: string | null;
   commitment_tx_hash: string | null;
   commitment_chain_id: number | null;
+  commitment_contract_address: string | null;
   commitment_created_at: string | null;
   created_at: string;
 };
@@ -108,6 +109,8 @@ const isMissingCheckInProgressColumnsError = (message: string) =>
   ["progress_value", "progress_snapshot_value", "progress_unit"].some((column) =>
     message.includes(column)
   );
+const isMissingCommitmentContractAddressColumnError = (message: string) =>
+  message.includes("does not exist") && message.includes("commitment_contract_address");
 const CHECK_IN_IMAGES_BUCKET = "checkin-images";
 const MAX_CHECK_IN_IMAGE_BYTES = 8 * 1024 * 1024;
 const BASE_MAINNET_CHAIN_ID = 8453;
@@ -158,6 +161,14 @@ const shortHash = (value: string, head = 10, tail = 6) => {
 
 const isRealTxHash = (value: string) => /^0x[a-fA-F0-9]{64}$/.test(value);
 const isMockTxRef = (value: string) => value.startsWith("mock:");
+const isCommitmentNotFoundError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("commitmentnotfound") ||
+    normalized.includes("0xb6682ad2")
+  );
+};
 
 const baseScanTxUrl = (txHash: string) =>
   isRealTxHash(txHash) ? `https://basescan.org/tx/${txHash}` : null;
@@ -286,6 +297,7 @@ export default function GoalPage() {
   const [privacyMessage, setPrivacyMessage] = useState<string | null>(null);
   const [privacyError, setPrivacyError] = useState<string | null>(null);
   const [pledgeCount, setPledgeCount] = useState(0);
+  const [activePledgeCount, setActivePledgeCount] = useState(0);
   const [completionUpdating, setCompletionUpdating] = useState(false);
   const [completionMessage, setCompletionMessage] = useState<string | null>(null);
   const [completionError, setCompletionError] = useState<string | null>(null);
@@ -526,8 +538,11 @@ export default function GoalPage() {
   }, [goal]);
 
   const ensureGoalCommitmentAnchor = useCallback(
-    async (currentGoal: Goal) => {
-      if (currentGoal.commitment_id) {
+    async (
+      currentGoal: Goal,
+      options: { forceReanchor?: boolean } = {}
+    ) => {
+      if (currentGoal.commitment_id && !options.forceReanchor) {
         return { goal: currentGoal, created: false };
       }
 
@@ -580,18 +595,40 @@ export default function GoalPage() {
       }
 
       const commitmentCreatedAt = new Date().toISOString();
+      const commitmentContractAddress = HAS_HABIT_REGISTRY_ADDRESS_CONFIG
+        ? HABIT_REGISTRY_ADDRESS
+        : null;
 
-      const { data: updatedGoal, error: updateError } = await supabase
-        .from("goals")
-        .update({
-          commitment_id: commitmentId,
-          commitment_tx_hash: txHash,
-          commitment_chain_id: anchorChainId,
-          commitment_created_at: commitmentCreatedAt,
-        })
-        .eq("id", currentGoal.id)
-        .select("*")
-        .single();
+      const persistCommitment = async (includeContractAddress: boolean) =>
+        supabase
+          .from("goals")
+          .update({
+            commitment_id: commitmentId,
+            commitment_tx_hash: txHash,
+            commitment_chain_id: anchorChainId,
+            commitment_created_at: commitmentCreatedAt,
+            ...(includeContractAddress
+              ? { commitment_contract_address: commitmentContractAddress }
+              : {}),
+          })
+          .eq("id", currentGoal.id)
+          .select("*")
+          .single();
+
+      let includeContractAddress = true;
+      let { data: updatedGoal, error: updateError } = await persistCommitment(
+        includeContractAddress
+      );
+      if (
+        updateError &&
+        includeContractAddress &&
+        isMissingCommitmentContractAddressColumnError(updateError.message)
+      ) {
+        includeContractAddress = false;
+        ({ data: updatedGoal, error: updateError } = await persistCommitment(
+          includeContractAddress
+        ));
+      }
 
       if (updateError || !updatedGoal) {
         if (isRealTxHash(txHash)) {
@@ -632,6 +669,8 @@ export default function GoalPage() {
       setError(goalError.message);
       setGoal(null);
       setCheckIns([]);
+      setPledgeCount(0);
+      setActivePledgeCount(0);
       setLoading(false);
       return;
     }
@@ -648,6 +687,18 @@ export default function GoalPage() {
       setPledgeCount(0);
     } else {
       setPledgeCount(count ?? 0);
+    }
+
+    const { count: activeCount, error: activePledgeError } = await supabase
+      .from("pledges")
+      .select("id", { count: "exact", head: true })
+      .eq("goal_id", id)
+      .in("status", ["offered", "accepted"]);
+
+    if (activePledgeError) {
+      setActivePledgeCount(0);
+    } else {
+      setActivePledgeCount(activeCount ?? 0);
     }
 
     setCheckInError(null);
@@ -783,7 +834,24 @@ export default function GoalPage() {
     let progressColumnsUnavailable = false;
     let onchainAnchored = false;
     let anchorCreatedForLegacyPublicGoal = false;
+    let anchorRefreshedForContractMismatch = false;
     let activeGoal = goal;
+    let latestActivePledgeCount = activePledgeCount;
+
+    const refreshActivePledgeCount = async () => {
+      const { count, error: countError } = await supabase
+        .from("pledges")
+        .select("id", { count: "exact", head: true })
+        .eq("goal_id", goalId)
+        .in("status", ["offered", "accepted"]);
+
+      if (countError) {
+        return latestActivePledgeCount;
+      }
+      latestActivePledgeCount = count ?? 0;
+      setActivePledgeCount(latestActivePledgeCount);
+      return latestActivePledgeCount;
+    };
 
     if (!activeGoal) {
       setSubmitError("Goal context is unavailable.");
@@ -820,6 +888,43 @@ export default function GoalPage() {
           toWalletActionError({
             error: anchorError,
             fallback: "Failed to create commitment anchor for this public goal.",
+            userRejected: "Commitment anchor transaction was canceled in wallet.",
+          })
+        );
+        setSubmittingCheckIn(false);
+        return;
+      }
+    }
+
+    if (
+      activeGoal.privacy === "public" &&
+      HAS_HABIT_REGISTRY_ADDRESS_CONFIG &&
+      HABIT_REGISTRY_ADDRESS &&
+      activeGoal.commitment_id &&
+      activeGoal.commitment_contract_address &&
+      activeGoal.commitment_contract_address.toLowerCase() !==
+        HABIT_REGISTRY_ADDRESS.toLowerCase()
+    ) {
+      const nextActivePledgeCount = await refreshActivePledgeCount();
+      if (nextActivePledgeCount > 0) {
+        setSubmitError(
+          "This goal is anchored to an older contract and has active sponsorships. Complete or settle active sponsorships before re-anchoring."
+        );
+        setSubmittingCheckIn(false);
+        return;
+      }
+      try {
+        const reanchorResult = await ensureGoalCommitmentAnchor(activeGoal, {
+          forceReanchor: true,
+        });
+        activeGoal = reanchorResult.goal;
+        anchorRefreshedForContractMismatch = reanchorResult.created;
+      } catch (reanchorError) {
+        setSubmitError(
+          toWalletActionError({
+            error: reanchorError,
+            fallback:
+              "Failed to refresh this goal's anchor on the current contract before check-in.",
             userRejected: "Commitment anchor transaction was canceled in wallet.",
           })
         );
@@ -873,25 +978,28 @@ export default function GoalPage() {
       }
     }
 
-    const generatedProofHash =
+    const buildProofHash = (commitmentId: string) =>
+      keccak256(
+        toBytes(
+          JSON.stringify({
+            version: 1,
+            goalId,
+            userId: session.user.id,
+            commitmentId,
+            checkInTimestamp,
+            progressValue: isActiveWeightSnapshotGoal ? 1 : parsedProgressValue,
+            progressSnapshotValue: isActiveWeightSnapshotGoal
+              ? parsedProgressValue
+              : null,
+            note: normalizedNote,
+            imageDigest,
+          })
+        )
+      );
+
+    let generatedProofHash =
       activeGoal.privacy === "public" && activeGoal.commitment_id
-        ? keccak256(
-            toBytes(
-              JSON.stringify({
-                version: 1,
-                goalId,
-                userId: session.user.id,
-                commitmentId: activeGoal.commitment_id,
-                checkInTimestamp,
-                progressValue: isActiveWeightSnapshotGoal ? 1 : parsedProgressValue,
-                progressSnapshotValue: isActiveWeightSnapshotGoal
-                  ? parsedProgressValue
-                  : null,
-                note: normalizedNote,
-                imageDigest,
-              })
-            )
-          )
+        ? buildProofHash(activeGoal.commitment_id)
         : null;
 
     let onchainCommitmentId: string | null = null;
@@ -900,7 +1008,11 @@ export default function GoalPage() {
     let onchainSubmittedAt: string | null = null;
 
     if (activeGoal.privacy === "public" && activeGoal.commitment_id && generatedProofHash) {
-      try {
+      const submitOnchainCheckIn = async (goalForCheckIn: Goal, proofHash: Hex) => {
+        if (!goalForCheckIn.commitment_id) {
+          throw new Error("Goal commitment id is missing for on-chain check-in.");
+        }
+        const commitmentId = goalForCheckIn.commitment_id;
         const accountAddress = (walletClient?.account?.address ??
           connectedAddress ??
           walletAddress) as Address | undefined;
@@ -918,7 +1030,7 @@ export default function GoalPage() {
 
           let commitmentIdBigInt: bigint;
           try {
-            commitmentIdBigInt = BigInt(activeGoal.commitment_id);
+            commitmentIdBigInt = BigInt(commitmentId);
           } catch {
             throw new Error("Goal commitment id is invalid for on-chain check-in.");
           }
@@ -928,48 +1040,93 @@ export default function GoalPage() {
             address: HABIT_REGISTRY_ADDRESS,
             abi: habitRegistryAbi,
             functionName: "checkIn",
-            args: [
-              commitmentIdBigInt,
-              generatedProofHash as Hex,
-              toUnixSeconds(checkInTimestamp),
-            ],
+            args: [commitmentIdBigInt, proofHash, toUnixSeconds(checkInTimestamp)],
             chain: base,
           });
 
           const realTxHash = await walletClient.writeContract(simulation.request);
           await publicClient.waitForTransactionReceipt({ hash: realTxHash });
 
-          onchainCommitmentId = activeGoal.commitment_id;
+          onchainCommitmentId = commitmentId;
           onchainTxHash = realTxHash;
           onchainChainId = BASE_MAINNET_CHAIN_ID;
         } else {
           await mockHabitRegistry.checkIn({
-            commitmentId: activeGoal.commitment_id,
-            proofHash: generatedProofHash,
+            commitmentId,
+            proofHash,
             timestamp: toUnixSeconds(checkInTimestamp),
           });
 
-          onchainCommitmentId = activeGoal.commitment_id;
-          onchainTxHash = `mock:checkin:${activeGoal.id}:${Date.now()}`;
+          onchainCommitmentId = commitmentId;
+          onchainTxHash = `mock:checkin:${goalForCheckIn.id}:${Date.now()}`;
           onchainChainId =
-            activeGoal.commitment_chain_id ??
+            goalForCheckIn.commitment_chain_id ??
             (Number.isFinite(sessionChainId) ? sessionChainId : BASE_MAINNET_CHAIN_ID);
         }
+
         onchainSubmittedAt = checkInTimestamp;
         onchainAnchored = true;
+      };
+
+      try {
+        await submitOnchainCheckIn(activeGoal, generatedProofHash as Hex);
       } catch (onchainError) {
-        if (uploadedImagePath) {
-          await supabase.storage.from(CHECK_IN_IMAGES_BUCKET).remove([uploadedImagePath]);
+        const canRetryWithReanchor =
+          HAS_HABIT_REGISTRY_ADDRESS_CONFIG &&
+          isCommitmentNotFoundError(onchainError) &&
+          (await refreshActivePledgeCount()) === 0;
+
+        if (canRetryWithReanchor) {
+          try {
+            const reanchorResult = await ensureGoalCommitmentAnchor(activeGoal, {
+              forceReanchor: true,
+            });
+            activeGoal = reanchorResult.goal;
+            if (!activeGoal.commitment_id) {
+              throw new Error("Failed to refresh commitment anchor.");
+            }
+            generatedProofHash = buildProofHash(activeGoal.commitment_id);
+            anchorRefreshedForContractMismatch = reanchorResult.created;
+            await submitOnchainCheckIn(activeGoal, generatedProofHash as Hex);
+          } catch (retryError) {
+            if (uploadedImagePath) {
+              await supabase.storage.from(CHECK_IN_IMAGES_BUCKET).remove([uploadedImagePath]);
+            }
+            setSubmitError(
+              toWalletActionError({
+                error: retryError,
+                fallback:
+                  "Failed to refresh this goal's on-chain anchor and submit check-in proof.",
+                userRejected: "Check-in transaction was canceled in wallet.",
+              })
+            );
+            setSubmittingCheckIn(false);
+            return;
+          }
+        } else {
+          if (uploadedImagePath) {
+            await supabase.storage.from(CHECK_IN_IMAGES_BUCKET).remove([uploadedImagePath]);
+          }
+          if (
+            isCommitmentNotFoundError(onchainError) &&
+            latestActivePledgeCount > 0
+          ) {
+            setSubmitError(
+              "This goal uses an older on-chain anchor and has active sponsorships. Complete or settle active sponsorships before re-anchoring to the current contract."
+            );
+            setSubmittingCheckIn(false);
+            return;
+          }
+          setSubmitError(
+            toWalletActionError({
+              error: onchainError,
+              fallback: "Failed to submit on-chain check-in proof.",
+              userRejected: "Check-in transaction was canceled in wallet.",
+            })
+          );
+          setSubmittingCheckIn(false);
+          return;
         }
-        setSubmitError(
-          toWalletActionError({
-            error: onchainError,
-            fallback: "Failed to submit on-chain check-in proof.",
-            userRejected: "Check-in transaction was canceled in wallet.",
-          })
-        );
-        setSubmittingCheckIn(false);
-        return;
       }
     }
 
@@ -1101,6 +1258,9 @@ export default function GoalPage() {
 
     if (anchorCreatedForLegacyPublicGoal) {
       submitMessages.push("Commitment anchor was created for this public goal.");
+    }
+    if (anchorRefreshedForContractMismatch) {
+      submitMessages.push("Commitment anchor was refreshed on the current contract.");
     }
 
     if (onchainAnchored) {

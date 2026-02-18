@@ -68,6 +68,12 @@ export const toWalletActionError = ({
   if (raw.toLowerCase().includes("insufficient funds")) {
     return "Insufficient funds to complete this transaction.";
   }
+  if (
+    raw.toLowerCase().includes("commitmentnotfound") ||
+    raw.toLowerCase().includes("0xb6682ad2")
+  ) {
+    return "This goal's on-chain anchor was not found on the active contract. Re-anchor and try again.";
+  }
   if (raw.toLowerCase().includes("connector not connected")) {
     return "Connect your wallet to continue.";
   }

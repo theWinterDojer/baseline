@@ -42,3 +42,4 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
   - Authenticate with SIWE via `Sign in with wallet`.
 - If connected wallet changes and no longer matches active session wallet metadata, app signs out stale session and routes to `/`.
 - After wallet-switch sign-out, SIWE stays manual-only (no automatic sign prompt).
+- Public-goal check-ins can auto-refresh stale on-chain commitment anchors after contract upgrades, but only when there are no active sponsorship pledges.

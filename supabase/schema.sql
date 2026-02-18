@@ -198,6 +198,7 @@ create table if not exists public.goals (
   commitment_id text,
   commitment_tx_hash text,
   commitment_chain_id integer,
+  commitment_contract_address text,
   commitment_created_at timestamptz,
   check_in_count integer not null default 0,
   tags text[] not null default '{}',
@@ -249,6 +250,7 @@ alter table public.goals
   add column if not exists commitment_id text,
   add column if not exists commitment_tx_hash text,
   add column if not exists commitment_chain_id integer,
+  add column if not exists commitment_contract_address text,
   add column if not exists commitment_created_at timestamptz,
   add column if not exists check_in_count integer not null default 0,
   add column if not exists tags text[] not null default '{}';
@@ -550,6 +552,8 @@ create index if not exists goals_status_idx on public.goals(status);
 create index if not exists goals_deadline_at_idx on public.goals(deadline_at);
 create index if not exists goals_created_at_idx on public.goals(created_at);
 create index if not exists goals_commitment_id_idx on public.goals(commitment_id);
+create index if not exists goals_commitment_contract_address_idx
+on public.goals(commitment_contract_address);
 
 create index if not exists check_ins_goal_id_idx on public.check_ins(goal_id);
 create index if not exists check_ins_user_id_idx on public.check_ins(user_id);

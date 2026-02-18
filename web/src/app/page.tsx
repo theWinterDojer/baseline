@@ -517,6 +517,7 @@ export default function Home() {
     const withTracking = await supabase
       .from("goals")
       .select(selectWithTracking)
+      .eq("user_id", activeSession.user.id)
       .order("created_at", { ascending: false });
 
     if (withTracking.error) {
@@ -530,6 +531,7 @@ export default function Home() {
       const legacy = await supabase
         .from("goals")
         .select(selectLegacy)
+        .eq("user_id", activeSession.user.id)
         .order("created_at", { ascending: false });
 
       if (legacy.error) {
