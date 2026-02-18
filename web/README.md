@@ -43,3 +43,9 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 - If connected wallet changes and no longer matches active session wallet metadata, app signs out stale session and routes to `/`.
 - After wallet-switch sign-out, SIWE stays manual-only (no automatic sign prompt).
 - Public-goal check-ins can auto-refresh stale on-chain commitment anchors after contract upgrades, but only when there are no active sponsorship pledges.
+
+## Dashboard Behavior
+
+- Header navigation uses dedicated actions for `Discover`, `Settings`, and `Sign out`.
+- Owner `Your goals` card is owner-only data (recent activity + owned goals) and does not include public-goal preview cards.
+- `Recent activity` and `Goals` each use compact, conditional overflow scrolling for dense accounts.

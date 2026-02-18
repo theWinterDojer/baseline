@@ -164,6 +164,8 @@ const sponsorshipEventTypes = new Set([
   "pledge.approved",
   "pledge.settled_no_response",
 ]);
+const RECENT_ACTIVITY_SCROLL_THRESHOLD = 3;
+const GOALS_SCROLL_THRESHOLD = 2;
 
 const formatSponsorshipAmount = (data: unknown): string | null => {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
@@ -361,6 +363,9 @@ export default function Home() {
       : isSnapshotPresetSelected
         ? "weight"
         : (selectedPreset?.label.toLowerCase() ?? "units");
+  const activityScrollable =
+    notifications.length > RECENT_ACTIVITY_SCROLL_THRESHOLD;
+  const goalsScrollable = goals.length > GOALS_SCROLL_THRESHOLD;
 
   const goalSummary = useMemo(() => {
     const title = goalForm.title.trim();
@@ -1619,73 +1624,96 @@ export default function Home() {
                 </p>
                 <section className={styles.notificationsSection}>
                   <h3 className={styles.notificationsHeading}>Recent activity</h3>
-                  {notificationsLoading ? (
-                    <div className={styles.emptyState}>Loading activity...</div>
-                  ) : notifications.length === 0 ? (
-                    <div className={styles.emptyState}>No activity yet.</div>
-                  ) : (
-                    <div className={styles.notificationsList}>
-                      {notifications.map((notification) => {
-                        const eventHref = notificationGoalHref(
-                          notification.event_type,
-                          notification.goal_id
-                        );
+                  <div
+                    className={`${styles.scrollCard} ${styles.activityScrollCard} ${
+                      activityScrollable ? styles.scrollCardScrollable : styles.scrollCardNatural
+                    }`}
+                  >
+                    {notificationsLoading ? (
+                      <div className={`${styles.emptyState} ${styles.subCardEmptyState}`}>
+                        Loading activity...
+                      </div>
+                    ) : notifications.length === 0 ? (
+                      <div className={`${styles.emptyState} ${styles.subCardEmptyState}`}>
+                        No activity yet.
+                      </div>
+                    ) : (
+                      <div className={styles.notificationsList}>
+                        {notifications.map((notification) => {
+                          const eventHref = notificationGoalHref(
+                            notification.event_type,
+                            notification.goal_id
+                          );
 
-                        return (
-                          <div key={notification.id} className={styles.notificationCard}>
-                            <div className={styles.notificationTitle}>
-                              {notificationTitle(notification.event_type, notification.data)}
+                          return (
+                            <div key={notification.id} className={styles.notificationCard}>
+                              <div className={styles.notificationRow}>
+                                <span className={styles.notificationTitle}>
+                                  {notificationTitle(notification.event_type, notification.data)}
+                                </span>
+                                <span className={styles.notificationDate}>
+                                  {new Date(notification.created_at).toLocaleString()}
+                                </span>
+                                {eventHref ? (
+                                  <Link
+                                    href={eventHref}
+                                    className={styles.notificationLink}
+                                  >
+                                    View
+                                  </Link>
+                                ) : (
+                                  <span className={styles.notificationViewMuted}>View</span>
+                                )}
+                              </div>
                             </div>
-                            <div className={styles.notificationMeta}>
-                              <span>
-                                {new Date(notification.created_at).toLocaleString()}
-                              </span>
-                              {eventHref ? (
-                                <Link
-                                  href={eventHref}
-                                  className={styles.notificationLink}
-                                >
-                                  View
-                                </Link>
-                              ) : null}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </section>
-                {initializing || goalsLoading ? (
-                  <div className={styles.emptyState}>Loading your goals...</div>
-                ) : goals.length === 0 ? (
-                  <div className={styles.emptyState}>
-                    No goals yet. Create your first goal to begin.
+                <section className={styles.goalsSection}>
+                  <h3 className={styles.notificationsHeading}>Goals</h3>
+                  <div
+                    className={`${styles.scrollCard} ${styles.goalsScrollCard} ${
+                      goalsScrollable ? styles.scrollCardScrollable : styles.scrollCardNatural
+                    }`}
+                  >
+                    {initializing || goalsLoading ? (
+                      <div className={`${styles.emptyState} ${styles.subCardEmptyState}`}>
+                        Loading your goals...
+                      </div>
+                    ) : goals.length === 0 ? (
+                      <div className={`${styles.emptyState} ${styles.subCardEmptyState}`}>
+                        No goals yet. Create your first goal to begin.
+                      </div>
+                    ) : (
+                      <div className={styles.goalList}>
+                        {goals.map((goal) => (
+                          <Link key={goal.id} href={`/goals/${goal.id}`} className={styles.goalCard}>
+                            <div className={styles.goalMeta}>
+                              {modelLabels[goal.model_type]} • {goal.privacy}
+                              {goal.start_at
+                                ? ` • Starts ${new Date(goal.start_at).toLocaleDateString()}`
+                                : ""}
+                            </div>
+                            <div className={styles.goalTitle}>{goal.title}</div>
+                            <div className={styles.goalFoot}>
+                              <span>
+                                Due {new Date(goal.deadline_at).toLocaleDateString()}
+                              </span>
+                              <span>
+                                {goal.target_value
+                                  ? `${goal.target_value} ${goal.target_unit ?? "check-ins"}`
+                                  : ""}
+                              </span>
+                            </div>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className={styles.goalList}>
-                    {goals.map((goal) => (
-                      <Link key={goal.id} href={`/goals/${goal.id}`} className={styles.goalCard}>
-                        <div className={styles.goalMeta}>
-                          {modelLabels[goal.model_type]} • {goal.privacy}
-                          {goal.start_at
-                            ? ` • Starts ${new Date(goal.start_at).toLocaleDateString()}`
-                            : ""}
-                        </div>
-                        <div className={styles.goalTitle}>{goal.title}</div>
-                        <div className={styles.goalFoot}>
-                          <span>
-                            Due {new Date(goal.deadline_at).toLocaleDateString()}
-                          </span>
-                          <span>
-                            {goal.target_value
-                              ? `${goal.target_value} ${goal.target_unit ?? "check-ins"}`
-                              : ""}
-                          </span>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                )}
+                </section>
                 {goalError ? <div className={styles.message}>{goalError}</div> : null}
               </>
             )}

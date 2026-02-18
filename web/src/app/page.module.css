@@ -340,9 +340,9 @@
 }
 
 .categoryCardSelected {
-  border-color: rgba(117, 200, 174, 0.65);
-  background: rgba(226, 249, 241, 0.9);
-  box-shadow: 0 8px 16px rgba(117, 200, 174, 0.16);
+  border-color: rgba(229, 119, 30, 0.46);
+  background: rgba(255, 245, 217, 0.9);
+  box-shadow: 0 12px 22px rgba(229, 119, 30, 0.14);
   animation: selectionPop 0.18s ease-out;
 }
 
@@ -664,10 +664,15 @@
 
 .notificationsSection {
   display: grid;
-  gap: 10px;
-  margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px dashed rgba(90, 61, 43, 0.2);
+  gap: 8px;
+}
+
+.goalsSection {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(90, 61, 43, 0.2);
 }
 
 .notificationsHeading {
@@ -683,48 +688,122 @@
   gap: 10px;
 }
 
+.scrollCard {
+  position: relative;
+  overflow: visible;
+}
+
+.scrollCardNatural {
+  max-height: none;
+}
+
+.scrollCardScrollable {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(90, 61, 43, 0.35) transparent;
+  padding-right: 4px;
+}
+
+.scrollCardScrollable::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 4px;
+  bottom: 0;
+  height: 18px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(241, 234, 219, 0), rgba(241, 234, 219, 0.94));
+}
+
+.scrollCardScrollable::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollCardScrollable::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollCardScrollable::-webkit-scrollbar-thumb {
+  background: rgba(90, 61, 43, 0.35);
+  border-radius: 999px;
+}
+
+.activityScrollCard {
+  max-height: none;
+}
+
+.goalsScrollCard {
+  max-height: none;
+}
+
+.activityScrollCard.scrollCardScrollable {
+  max-height: 170px;
+}
+
+.goalsScrollCard.scrollCardScrollable {
+  max-height: 230px;
+}
+
 .notificationCard {
-  display: grid;
-  gap: 8px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid rgba(90, 61, 43, 0.14);
   background: rgba(255, 255, 255, 0.78);
 }
 
-.notificationTitle {
-  font-size: 13px;
-  line-height: 1.4;
-  color: #332b22;
+.notificationRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
 }
 
-.notificationMeta {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
+.notificationTitle {
   font-size: 12px;
+  line-height: 1.3;
+  color: #332b22;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notificationDate {
+  font-size: 11px;
   color: #6b5f4a;
+  white-space: nowrap;
 }
 
 .notificationLink {
   color: #5a3d2b;
   text-decoration: none;
   font-weight: 600;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .notificationLink:hover {
   text-decoration: underline;
 }
 
+.notificationViewMuted {
+  font-size: 11px;
+  color: #8e8373;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .goalList {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .goalCard {
   display: grid;
   gap: 6px;
-  padding: 16px;
+  padding: 14px;
   border-radius: 18px;
   border: 1px solid rgba(90, 61, 43, 0.16);
   background: rgba(255, 250, 240, 0.92);
@@ -744,7 +823,7 @@
 }
 
 .goalTitle {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
   color: #1b1a17;
 }
@@ -752,7 +831,7 @@
 .goalFoot {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: 12px;
   color: #6b5f4a;
 }
 
@@ -762,6 +841,15 @@
   border: 1px dashed rgba(90, 61, 43, 0.25);
   color: #6b5f4a;
   font-size: 14px;
+}
+
+.subCardEmptyState {
+  padding: 8px 4px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #6f6455;
+  font-size: 13px;
 }
 
 .pill {
@@ -936,6 +1024,22 @@
 
   .footerNote {
     width: 100%;
+  }
+
+  .activityScrollCard {
+    max-height: none;
+  }
+
+  .goalsScrollCard {
+    max-height: none;
+  }
+
+  .activityScrollCard.scrollCardScrollable {
+    max-height: 156px;
+  }
+
+  .goalsScrollCard.scrollCardScrollable {
+    max-height: 210px;
   }
 }
 
