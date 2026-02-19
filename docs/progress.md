@@ -6,7 +6,7 @@
 > Task status notation for handoffs: `[ ]` = incomplete, `[x]` = complete.
 
 ## Document Metadata
-- Last updated: 2026-02-19 15:43 EST
+- Last updated: 2026-02-19 15:48 EST
 - Owner: Baseline core team
 - Current phase: Pre-P0 polish + production hardening
 - Overall status: At risk until P0 release gates pass
@@ -64,6 +64,7 @@
 ## Validation / QA Ledger
 | Date | Area | Result | Evidence / note |
 |---|---|---|---|
+| 2026-02-19 | Wallet regression matrix execution prep (`CP-001`) | In progress | Added `docs/cp-001-wallet-regression-matrix.md` with Owner/Sponsor/Visitor test rows (`WR-01`..`WR-10`), evidence template, and SQL verification snippets for commitment/check-in/pledge validation. |
 | 2026-02-19 | Deployment/env readiness audit (`CP-012`) | Pass | Ran `npm run audit:env-readiness` (`web/scripts/audit-env-readiness.mjs`) on Base mainnet: all required env vars present (`CRON_SECRET`, `DISCOVERY_REBUILD_KEY`, `PLEDGE_SETTLEMENT_KEY`, `PLEDGE_SETTLER_PRIVATE_KEY`, `BASE_RPC_URL`), RPC connectivity confirmed (`chainId=8453`, latest block `42372225`), relayer `0xea5506c310f3b4931f77c936Bc315bd117B34c37` gas balance confirmed (`0.000158128513320182 ETH`). |
 | 2026-02-19 | Contract-ops alignment verification (`CP-024`) | Pass | Ran `npm run verify:contract-ops` (`web/scripts/verify-contract-ops.mjs`) against Base mainnet (chainId `8453`) for contract `0x6924DD7eeC97d2E330e6D753C63778E04a62Aa4C`: `paused=false`, `reviewWindowSeconds=604800`, relayer/operator `0xea5506c310f3b4931f77c936Bc315bd117B34c37` enabled (`settlementOperators=true`); all checks passed. |
 | 2026-02-19 | Supabase schema/RLS parity verification (`CP-007`) | Pass | User-provided `supabase/verify.sql` report: `00_summary.overall = true`, `193 checks total / 193 checks passed`; required columns (`goals.completed_at`, `goals.start_snapshot_value`, `goals.commitment_contract_address`), RLS, policies, and storage checks all passed. |
@@ -109,6 +110,7 @@
 - [x] New goal `goals.commitment_contract_address` persistence verified.
 
 ## Change Log
+- 2026-02-19 15:48 EST: Added `docs/cp-001-wallet-regression-matrix.md` and logged CP-001 execution prep evidence (WR-01..WR-10 matrix + SQL checks).
 - 2026-02-19 15:43 EST: Added env/readiness audit runner (`web/scripts/audit-env-readiness.mjs`, `npm run audit:env-readiness`) and marked `CP-012` + `RG-02` complete with RPC/relayer evidence in QA ledger.
 - 2026-02-19 15:41 EST: Added contract-ops verification runner (`web/scripts/verify-contract-ops.mjs`, `npm run verify:contract-ops`) and marked `CP-024` complete with Base mainnet evidence in QA ledger.
 - 2026-02-19 01:38 EST: Marked `CP-007` and `RG-01` complete; added Supabase verification evidence (`supabase/verify.sql` 193/193 pass) to QA ledger and historical completions.
