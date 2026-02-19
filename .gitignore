@@ -4,5 +4,4 @@ node_modules
 .next
 .supabase
 .cursor/
-docs/
 *.code-workspace
