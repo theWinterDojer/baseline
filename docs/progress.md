@@ -6,14 +6,14 @@
 > Task status notation for handoffs: `[ ]` = incomplete, `[x]` = complete.
 
 ## Document Metadata
-- Last updated: 2026-02-19 01:29 EST
+- Last updated: 2026-02-19 01:38 EST
 - Owner: Baseline core team
 - Current phase: Pre-P0 polish + production hardening
 - Overall status: At risk until P0 release gates pass
 - Canonical refs: `docs/mvp.md`, `docs/goalsystem.md`, `docs/habit-registry-contract.md`, `docs/acceptance-checklist.md`, `docs/qa-phase5-7.md`, `docs/setup.md`
 
 ## Execution Queue (P0 Critical Path, Ordered)
-- [ ] `CP-007` (P0): Supabase parity verification in active environments. Done when required schema/policies are verified (`completed_at`, `start_snapshot_value`, `commitment_contract_address`, check-in/progress columns, RLS) and `supabase/verify.sql` is captured.
+- [x] `CP-007` (P0): Supabase parity verification in active environments. Done when required schema/policies are verified (`completed_at`, `start_snapshot_value`, `commitment_contract_address`, check-in/progress columns, RLS) and `supabase/verify.sql` is captured.
 - [ ] `CP-024` (P0): Contract-ops alignment verification. Done when production contract/operator settings are verified (`setSettlementOperator`, review window, pause state expectations) and recorded with evidence.
 - [ ] `CP-012` (P0): Deployment/env readiness audit. Depends on: `CP-024`. Done when required env vars are verified (`CRON_SECRET`, settlement keys, relayer key, RPC), relayer gas balance is confirmed, and RPC connectivity is validated.
 - [ ] `CP-001` (P0): Run wallet regression matrix (connect/sign-in/sign-out/switch, make-public, check-in anchor, sponsor offer, settlement). Depends on: none. Done when Owner/Sponsor/Visitor write paths pass or all failures are triaged with repro.
@@ -34,7 +34,7 @@
 - [ ] Dashboard notification links route correctly (`/goals/:id` vs `/public/goals/:id`).
 
 ## Release Gates (Must Pass)
-- [ ] `RG-01`: `CP-007` complete (Supabase schema/policy parity + `verify.sql` evidence).
+- [x] `RG-01`: `CP-007` complete (Supabase schema/policy parity + `verify.sql` evidence).
 - [ ] `RG-02`: `CP-024` + `CP-012` complete (contract-ops + env/relayer readiness verified).
 - [ ] `RG-03`: `CP-001` complete (wallet/tx regression matrix with no unresolved blockers).
 - [ ] `RG-04`: `CP-002` complete (wallet/tx error UX hardened).
@@ -64,6 +64,7 @@
 ## Validation / QA Ledger
 | Date | Area | Result | Evidence / note |
 |---|---|---|---|
+| 2026-02-19 | Supabase schema/RLS parity verification (`CP-007`) | Pass | User-provided `supabase/verify.sql` report: `00_summary.overall = true`, `193 checks total / 193 checks passed`; required columns (`goals.completed_at`, `goals.start_snapshot_value`, `goals.commitment_contract_address`), RLS, policies, and storage checks all passed. |
 | 2026-02-18 | Wallet switching strict flow | Pass | User confirmed switch flow works; manual SIWE preserved |
 | 2026-02-18 | New goal contract address persistence | Pass | User confirmed `goals.commitment_contract_address` populated on new goals |
 | 2026-02-18 | Legacy goal check-in on pre-v2 anchor | Known compatibility issue | Revert signature mismatch surfaced; treated as legacy compatibility scenario |
@@ -90,6 +91,7 @@
 - [ ] `CP-025` (P1 hardening): Add and enforce Solidity contract test gate for deployment/cutover confidence.
 
 ## Historically Completed (Newest First)
+- [x] `CP-007` Supabase parity verification completed with `supabase/verify.sql` evidence (`193/193` checks passed).
 - [x] Strict wallet/session mismatch handling implemented and validated.
 - [x] Auto sign-in on wallet switch removed; SIWE is manual-only after mismatch reset.
 - [x] Sign-out connector-noise path fixed; remembered-wallet reset UX removed.
@@ -103,6 +105,7 @@
 - [x] New goal `goals.commitment_contract_address` persistence verified.
 
 ## Change Log
+- 2026-02-19 01:38 EST: Marked `CP-007` and `RG-01` complete; added Supabase verification evidence (`supabase/verify.sql` 193/193 pass) to QA ledger and historical completions.
 - 2026-02-18 15:29 EST: Rebuilt as long-lived handoff/execution board with IDs, queue, release gates, QA ledger, decisions log, and historical completion section.
 - 2026-02-19 00:56 EST: Aligned metadata/references and Phase 5-8 QA naming with current MVP cross-doc dependencies.
 - 2026-02-19 00:58 EST: Simplified tracking format to checkbox tasks (`[ ]` open, `[x]` complete) and removed owner/due/success table fields.
