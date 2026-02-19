@@ -1,14 +1,12 @@
 # Baseline Running Progress + Handoff
 
-> Local-only internal doc (`docs/` is git-ignored).
+> Internal execution doc (`docs/progress.md` is tracked in git for persistence).
+> Other `docs/*` files remain local-only by default unless explicitly unignored.
 > Purpose: persistent execution board + handoff log (not session-only notes).
-
-## Rebuild Note
-- This board was rebuilt after an accidental overwrite.
-- Treat unchecked tasks/gates as unknown or unverified until evidence is logged.
+> Task status notation for handoffs: `[ ]` = incomplete, `[x]` = complete.
 
 ## Document Metadata
-- Last updated: 2026-02-19 01:06 EST
+- Last updated: 2026-02-19 01:29 EST
 - Owner: Baseline core team
 - Current phase: Pre-P0 polish + production hardening
 - Overall status: At risk until P0 release gates pass
@@ -77,7 +75,7 @@
 - Legacy commitments from older contract versions can fail without compatibility-aware handling.
 - Scheduler reliability and key-auth drift can break automation if not continuously validated.
 - Contract/operator setting drift can silently break no-response settlement behavior.
-- `docs/` is untracked; accidental overwrite risk remains.
+- Supporting `docs/*` files are local-only; drift/loss risk remains unless key changes are mirrored into `docs/progress.md`.
 
 ## Post-P0 Backlog
 - [ ] `CP-015` (P1): Global copy/content pass for cards/states (`minimum progress` terminology).
@@ -109,6 +107,7 @@
 - 2026-02-19 00:56 EST: Aligned metadata/references and Phase 5-8 QA naming with current MVP cross-doc dependencies.
 - 2026-02-19 00:58 EST: Simplified tracking format to checkbox tasks (`[ ]` open, `[x]` complete) and removed owner/due/success table fields.
 - 2026-02-19 01:06 EST: Reprioritized into a single P0 critical path, removed duplicate priority tracking, added contract-ops alignment + required coverage checks, and split post-P0 backlog.
+- 2026-02-19 01:29 EST: Updated tracking policy language to reflect git-tracked `docs/progress.md` with other docs local-only by default.
 
 ## Maintenance Rules
 1. Use `Execution Queue (P0 Critical Path)` as the single source of active release work.
