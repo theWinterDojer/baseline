@@ -6,7 +6,7 @@
 > Task status notation for handoffs: `[ ]` = incomplete, `[x]` = complete.
 
 ## Document Metadata
-- Last updated: 2026-02-19 01:38 EST
+- Last updated: 2026-02-19 15:43 EST
 - Owner: Baseline core team
 - Current phase: Pre-P0 polish + production hardening
 - Overall status: At risk until P0 release gates pass
@@ -14,8 +14,8 @@
 
 ## Execution Queue (P0 Critical Path, Ordered)
 - [x] `CP-007` (P0): Supabase parity verification in active environments. Done when required schema/policies are verified (`completed_at`, `start_snapshot_value`, `commitment_contract_address`, check-in/progress columns, RLS) and `supabase/verify.sql` is captured.
-- [ ] `CP-024` (P0): Contract-ops alignment verification. Done when production contract/operator settings are verified (`setSettlementOperator`, review window, pause state expectations) and recorded with evidence.
-- [ ] `CP-012` (P0): Deployment/env readiness audit. Depends on: `CP-024`. Done when required env vars are verified (`CRON_SECRET`, settlement keys, relayer key, RPC), relayer gas balance is confirmed, and RPC connectivity is validated.
+- [x] `CP-024` (P0): Contract-ops alignment verification. Done when production contract/operator settings are verified (`setSettlementOperator`, review window, pause state expectations) and recorded with evidence.
+- [x] `CP-012` (P0): Deployment/env readiness audit. Depends on: `CP-024`. Done when required env vars are verified (`CRON_SECRET`, settlement keys, relayer key, RPC), relayer gas balance is confirmed, and RPC connectivity is validated.
 - [ ] `CP-001` (P0): Run wallet regression matrix (connect/sign-in/sign-out/switch, make-public, check-in anchor, sponsor offer, settlement). Depends on: none. Done when Owner/Sponsor/Visitor write paths pass or all failures are triaged with repro.
 - [ ] `CP-002` (P0): Normalize wallet/tx error UX (cancel/reject/provider failures). Depends on: `CP-001` findings. Done when user-facing errors are concise, no raw provider/signature dumps leak, and layout stays stable on long errors.
 - [ ] `CP-003` (P0): Mobile optimization pass (dashboard/public goal/wizard) with desktop parity checks. Depends on: none. Done when mobile spacing/tap targets/scroll ergonomics improve and desktop regression screenshots are clean.
@@ -35,7 +35,7 @@
 
 ## Release Gates (Must Pass)
 - [x] `RG-01`: `CP-007` complete (Supabase schema/policy parity + `verify.sql` evidence).
-- [ ] `RG-02`: `CP-024` + `CP-012` complete (contract-ops + env/relayer readiness verified).
+- [x] `RG-02`: `CP-024` + `CP-012` complete (contract-ops + env/relayer readiness verified).
 - [ ] `RG-03`: `CP-001` complete (wallet/tx regression matrix with no unresolved blockers).
 - [ ] `RG-04`: `CP-002` complete (wallet/tx error UX hardened).
 - [ ] `RG-05`: `CP-003` complete (mobile pass complete, desktop parity verified).
@@ -64,6 +64,8 @@
 ## Validation / QA Ledger
 | Date | Area | Result | Evidence / note |
 |---|---|---|---|
+| 2026-02-19 | Deployment/env readiness audit (`CP-012`) | Pass | Ran `npm run audit:env-readiness` (`web/scripts/audit-env-readiness.mjs`) on Base mainnet: all required env vars present (`CRON_SECRET`, `DISCOVERY_REBUILD_KEY`, `PLEDGE_SETTLEMENT_KEY`, `PLEDGE_SETTLER_PRIVATE_KEY`, `BASE_RPC_URL`), RPC connectivity confirmed (`chainId=8453`, latest block `42372225`), relayer `0xea5506c310f3b4931f77c936Bc315bd117B34c37` gas balance confirmed (`0.000158128513320182 ETH`). |
+| 2026-02-19 | Contract-ops alignment verification (`CP-024`) | Pass | Ran `npm run verify:contract-ops` (`web/scripts/verify-contract-ops.mjs`) against Base mainnet (chainId `8453`) for contract `0x6924DD7eeC97d2E330e6D753C63778E04a62Aa4C`: `paused=false`, `reviewWindowSeconds=604800`, relayer/operator `0xea5506c310f3b4931f77c936Bc315bd117B34c37` enabled (`settlementOperators=true`); all checks passed. |
 | 2026-02-19 | Supabase schema/RLS parity verification (`CP-007`) | Pass | User-provided `supabase/verify.sql` report: `00_summary.overall = true`, `193 checks total / 193 checks passed`; required columns (`goals.completed_at`, `goals.start_snapshot_value`, `goals.commitment_contract_address`), RLS, policies, and storage checks all passed. |
 | 2026-02-18 | Wallet switching strict flow | Pass | User confirmed switch flow works; manual SIWE preserved |
 | 2026-02-18 | New goal contract address persistence | Pass | User confirmed `goals.commitment_contract_address` populated on new goals |
@@ -91,6 +93,8 @@
 - [ ] `CP-025` (P1 hardening): Add and enforce Solidity contract test gate for deployment/cutover confidence.
 
 ## Historically Completed (Newest First)
+- [x] `CP-012` Deployment/env readiness audit completed (required env vars, Base RPC connectivity, relayer gas balance verified).
+- [x] `CP-024` Contract-ops alignment verification completed (operator/review window/pause state verified on Base mainnet).
 - [x] `CP-007` Supabase parity verification completed with `supabase/verify.sql` evidence (`193/193` checks passed).
 - [x] Strict wallet/session mismatch handling implemented and validated.
 - [x] Auto sign-in on wallet switch removed; SIWE is manual-only after mismatch reset.
@@ -105,6 +109,8 @@
 - [x] New goal `goals.commitment_contract_address` persistence verified.
 
 ## Change Log
+- 2026-02-19 15:43 EST: Added env/readiness audit runner (`web/scripts/audit-env-readiness.mjs`, `npm run audit:env-readiness`) and marked `CP-012` + `RG-02` complete with RPC/relayer evidence in QA ledger.
+- 2026-02-19 15:41 EST: Added contract-ops verification runner (`web/scripts/verify-contract-ops.mjs`, `npm run verify:contract-ops`) and marked `CP-024` complete with Base mainnet evidence in QA ledger.
 - 2026-02-19 01:38 EST: Marked `CP-007` and `RG-01` complete; added Supabase verification evidence (`supabase/verify.sql` 193/193 pass) to QA ledger and historical completions.
 - 2026-02-18 15:29 EST: Rebuilt as long-lived handoff/execution board with IDs, queue, release gates, QA ledger, decisions log, and historical completion section.
 - 2026-02-19 00:56 EST: Aligned metadata/references and Phase 5-8 QA naming with current MVP cross-doc dependencies.
