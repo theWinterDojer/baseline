@@ -6,7 +6,7 @@
 > Task status notation for handoffs: `[ ]` = incomplete, `[x]` = complete.
 
 ## Document Metadata
-- Last updated: 2026-02-20 03:01 EST
+- Last updated: 2026-02-20 16:03 EST
 - Owner: Baseline core team
 - Current phase: Pre-P0 polish + production hardening
 - Overall status: At risk until P0 release gates pass
@@ -103,6 +103,42 @@
 3. Run WR-09 settlement in production (owner + sponsor): capture `markCommitmentCompleted` + `settlePledgeBySponsor` tx hashes and final settled status evidence.
 4. Update QA ledger with WR-08/WR-09 evidence and, if both pass, close `CP-001` + `RG-03`; then finish `CP-002` by validating wallet error copy against real WR cancel/reject/provider-failure paths and closing `RG-04`.
 
+## Temporary: CP-003 Mobile Verification (6-Step Click Path)
+> Temporary runbook to execute later and remove once `CP-003`/`RG-05` are closed.
+
+1. Mobile home header/actions
+- Viewport: mobile vertical (`390x844` or similar).
+- Click path: `/` -> `Connect wallet` -> `Sign in with wallet`.
+- Pass: header actions/pill wrap cleanly, no horizontal page scroll.
+- Evidence: screenshot `cp003-01-home-header-mobile.png`.
+
+2. Wizard flow (layout/tap targets)
+- Click path: `/` -> in left panel enter `Goal title` -> `Continue` -> choose `Track amount` -> choose any category + preset -> `Continue` -> choose cadence + target -> `Continue` -> set start/deadline -> `Continue`.
+- Pass: cards/buttons/inputs stay in viewport on each step; no clipped controls; no horizontal scroll.
+- Evidence: screenshot on Step 2 or 3 `cp003-02-wizard-mobile.png`.
+
+3. Dashboard activity/goals cards
+- Click path: `/` signed-in dashboard -> scroll `Recent activity` and `Goals` sections -> open any goal from `Goals`.
+- Pass: notification rows and goal cards wrap without overflow; scroll sections remain usable.
+- Evidence: screenshot `cp003-03-dashboard-scroll-mobile.png`.
+
+4. Goal detail trend + metadata stress
+- Click path: `/goals/:id` (from Step 3) -> review top card (progress bar, trend chart, anchor/tx metadata).
+- Pass: trend chart is contained; long hash/tx text wraps; no horizontal overflow.
+- Evidence: screenshot `cp003-04-goal-trend-mobile.png`.
+
+5. Goal detail image stress
+- Click path: `/goals/:id` -> `Add check-in` -> choose image file in `Image (optional)` -> inspect preview, then scroll to `Recent check-ins` image if present.
+- Pass: preview/check-in images stay within card width; no card expansion off-screen.
+- Evidence: screenshot `cp003-05-goal-image-mobile.png`.
+
+6. Public goal sponsorship form + desktop parity spot-check
+- Click path: `/goals/:id` -> `View public page` -> in `Sponsor this goal` test preset chips + `Custom` amount + deadline/minimum progress fields.
+- Pass (mobile): sponsor controls wrap cleanly; full form usable without horizontal scroll.
+- Then desktop quick parity (`>=1280px`) on `/`, `/goals/:id`, `/public/goals/:id`.
+- Pass (desktop): no broken alignment/compressed controls after mobile fixes.
+- Evidence: screenshots `cp003-06-public-sponsor-mobile.png` and `cp003-07-desktop-parity.png`.
+
 ## Post-P0 Backlog
 - [ ] `CP-015` (P1): Global copy/content pass for cards/states (`minimum progress` terminology).
 - [ ] `CP-016` (P1): Public goal sponsor-facing polish pass.
@@ -135,6 +171,7 @@
 - [x] New goal `goals.commitment_contract_address` persistence verified.
 
 ## Change Log
+- 2026-02-20 16:03 EST: Added temporary 6-step exact click-path runbook for `CP-003` mobile verification (with evidence filenames) to execute later and close `RG-05` faster.
 - 2026-02-20 03:01 EST: Added defensive card width/overflow constraints across dashboard/goal/public-goal pages to reduce mobile vertical overflow edge cases; lint passed.
 - 2026-02-20 02:56 EST: Explicitly noted sponsorship escrow lifecycle verification remains pending (`CP-001` WR-08/WR-09) in Blocked + QA ledger until production tx-hash evidence is captured.
 - 2026-02-20 02:41 EST: Added `CP-003` overflow-guard follow-up for goal detail mobile vertical layout (trend/image/check-in content containment + wrapping) with lint evidence.
