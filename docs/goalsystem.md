@@ -1,6 +1,6 @@
 # Baseline Goal System (Rebuild Plan)
 
-> Local-only internal development doc. Do not track in git or force-add in commits.
+> Internal development doc (tracked in git). Do not store secrets or private keys in this file.
 
 ## Purpose
 Define a goal system that is simple to create, unambiguous to track, and logically consistent across UI, database, check-ins, discovery, and sponsorship.

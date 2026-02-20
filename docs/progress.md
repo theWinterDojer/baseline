@@ -1,12 +1,12 @@
 # Baseline Running Progress + Handoff
 
-> Internal execution doc (`docs/progress.md` is tracked in git for persistence).
-> Other `docs/*` files remain local-only by default unless explicitly unignored.
+> Internal execution doc (tracked in git for persistence).
+> `docs/*.md` files are tracked; `docs/Baseline.txt` is ignored and must never contain production-safe assumptions.
 > Purpose: persistent execution board + handoff log (not session-only notes).
 > Task status notation for handoffs: `[ ]` = incomplete, `[x]` = complete.
 
 ## Document Metadata
-- Last updated: 2026-02-20 16:03 EST
+- Last updated: 2026-02-20 16:10 EST
 - Owner: Baseline core team
 - Current phase: Pre-P0 polish + production hardening
 - Overall status: At risk until P0 release gates pass
@@ -92,7 +92,7 @@
 - Legacy commitments from older contract versions can fail without compatibility-aware handling.
 - Scheduler reliability and key-auth drift can break automation if not continuously validated.
 - Contract/operator setting drift can silently break no-response settlement behavior.
-- Supporting `docs/*` files are local-only; drift/loss risk remains unless key changes are mirrored into `docs/progress.md`.
+- Sensitive local notes file risk: `docs/Baseline.txt` contains secrets and should be treated as compromised material until rotated/removed.
 
 ## Knowledge Handoffs (Pending)
 - [ ] `KH-001`: Explain `pledges.escrow_contract_address` end-to-end (why it exists, how it is populated, where it is used in settlement/reconciliation, and failure modes).
@@ -171,6 +171,7 @@
 - [x] New goal `goals.commitment_contract_address` persistence verified.
 
 ## Change Log
+- 2026-02-20 16:10 EST: Updated docs tracking policy language to reflect git-tracked `docs/*.md` and flagged `docs/Baseline.txt` as sensitive local material requiring rotation/removal handling.
 - 2026-02-20 16:03 EST: Added temporary 6-step exact click-path runbook for `CP-003` mobile verification (with evidence filenames) to execute later and close `RG-05` faster.
 - 2026-02-20 03:01 EST: Added defensive card width/overflow constraints across dashboard/goal/public-goal pages to reduce mobile vertical overflow edge cases; lint passed.
 - 2026-02-20 02:56 EST: Explicitly noted sponsorship escrow lifecycle verification remains pending (`CP-001` WR-08/WR-09) in Blocked + QA ledger until production tx-hash evidence is captured.

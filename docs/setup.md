@@ -1,6 +1,6 @@
 # Baseline Setup (Recommended Order)
 
-> Local-only internal development doc. Do not track in git or force-add in commits.
+> Internal development doc (tracked in git). Do not store secrets or private keys in this file.
 
 This guide is the recommended order to get the MVP vertical slice running.
 

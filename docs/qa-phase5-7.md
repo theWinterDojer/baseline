@@ -1,6 +1,6 @@
 # Phase 5-8 QA Pass (Manual)
 
-> Local-only internal development doc. Do not track in git or force-add in commits.
+> Internal development doc (tracked in git). Do not store secrets or private keys in this file.
 
 ## Scope
 This QA pass validates the completed goal-system and sponsorship/discovery work:

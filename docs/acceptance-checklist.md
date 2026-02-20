@@ -1,6 +1,6 @@
 # Baseline MVP Acceptance Checklist
 
-> Local-only internal development doc. Do not track in git or force-add in commits.
+> Internal development doc (tracked in git). Do not store secrets or private keys in this file.
 
 ## Create Goal
 - [ ] Signed-in user can create a goal through the 5-step wizard (intent, measurement, pace, timeline, review)

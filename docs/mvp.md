@@ -1,6 +1,6 @@
 # Baseline MVP Spec
 
-> Local-only internal development doc. Do not track in git or force-add in commits.
+> Internal development doc (tracked in git). Do not store secrets or private keys in this file.
 
 ## Project Tracking
 Project tracking lives in `docs/progress.md`. Whenever this spec changes, update `docs/progress.md` so both stay in sync.
