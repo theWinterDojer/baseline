@@ -6,7 +6,7 @@
 > Task status notation for handoffs: `[ ]` = incomplete, `[x]` = complete.
 
 ## Document Metadata
-- Last updated: 2026-02-20 01:49 EST
+- Last updated: 2026-02-20 02:13 EST
 - Owner: Baseline core team
 - Current phase: Pre-P0 polish + production hardening
 - Overall status: At risk until P0 release gates pass
@@ -46,7 +46,7 @@
 - [ ] `RG-10`: `CP-006` complete (QA master pass with evidence and SQL spot checks).
 
 ## Blocked
-- `CP-001` (partial): WR-08/WR-09 sponsorship+settlement checks are blocked by insufficient sponsor test funds for minimum `$5` USDC pledge. Owner: dojer. Unblock: fund sponsor QA wallet with `>= $5` USDC and Base ETH gas (preferred release-evidence path) or run local mock/off-chain mode for UX-only validation. ETA: pending wallet funding.
+- `CP-001` (partial): WR-08/WR-09 sponsorship+settlement checks remain blocked until sponsor QA wallet has minimum `$5` USDC pledge funds plus Base ETH gas. Owner: dojer. Unblock: fund sponsor QA wallet and execute WR-08/WR-09 on production with tx hash evidence.
 - Rule: if blocked > 1 business day, add owner + unblock action + ETA.
 
 ## Decisions Log
@@ -88,6 +88,15 @@
 - Contract/operator setting drift can silently break no-response settlement behavior.
 - Supporting `docs/*` files are local-only; drift/loss risk remains unless key changes are mirrored into `docs/progress.md`.
 
+## Knowledge Handoffs (Pending)
+- [ ] `KH-001`: Explain `pledges.escrow_contract_address` end-to-end (why it exists, how it is populated, where it is used in settlement/reconciliation, and failure modes).
+
+## Next Session Handoff (Start Here)
+1. Run WR-08 sponsorship offer in production (sponsor wallet): capture `approve` + `createPledge` tx hashes and goal URL.
+2. Run WR-09 settlement in production (owner + sponsor): capture `markCommitmentCompleted` + `settlePledgeBySponsor` tx hashes and final settled status evidence.
+3. Update QA ledger with WR-08/WR-09 evidence and, if both pass, close `CP-001` + `RG-03`.
+4. Start `CP-002` wallet/tx error UX hardening using any WR failure text/cancel paths discovered during WR-08/WR-09.
+
 ## Post-P0 Backlog
 - [ ] `CP-015` (P1): Global copy/content pass for cards/states (`minimum progress` terminology).
 - [ ] `CP-016` (P1): Public goal sponsor-facing polish pass.
@@ -120,6 +129,8 @@
 - [x] New goal `goals.commitment_contract_address` persistence verified.
 
 ## Change Log
+- 2026-02-20 02:13 EST: Added explicit next-session handoff checklist (WR-08/WR-09 -> CP-001/RG-03 closure -> CP-002 start) and clarified current sponsorship-funding blocker language.
+- 2026-02-20 01:52 EST: Added `KH-001` knowledge-handoff task to explain `pledges.escrow_contract_address` end-to-end for operator clarity.
 - 2026-02-20 01:49 EST: Verified production deployment of `/api/pledges/reconcile` with authenticated `GET`/`POST` returning `200` and zero-drift baseline response.
 - 2026-02-20 01:42 EST: Logged Supabase post-hardening re-verification evidence (`supabase/verify.sql` 197/197 checks passed) after applying updated schema scripts.
 - 2026-02-20 01:23 EST: Marked `CP-010`, `CP-011`, and `RG-07` complete after live authenticated endpoint checks against production for cron/manual rebuild+expire+settle routes.
