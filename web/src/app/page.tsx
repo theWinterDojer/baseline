@@ -976,10 +976,10 @@ export default function Home() {
             <div className={styles.tagline}>{BASELINE_TAGLINE}</div>
           </div>
           <div className={styles.headerRight}>
-            <div className={styles.buttonRow}>
+            <div className={`${styles.buttonRow} ${styles.headerActions}`}>
               {session ? (
                 <>
-                  <span className={styles.pill}>{userLabel}</span>
+                  <span className={`${styles.pill} ${styles.userPill}`}>{userLabel}</span>
                   <Link className={`${styles.buttonGhost} ${styles.linkButton}`} href="/discover">
                     Discover
                   </Link>

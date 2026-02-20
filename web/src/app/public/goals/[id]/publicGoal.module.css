@@ -107,8 +107,10 @@
 }
 
 .backLink {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   margin-top: 10px;
+  min-height: 40px;
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -123,6 +125,9 @@
   box-shadow: 0 26px 60px rgba(90, 61, 43, 0.18);
   display: grid;
   gap: 18px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .title {
@@ -245,7 +250,7 @@
 
 .amountButton {
   min-width: 84px;
-  height: 40px;
+  min-height: 44px;
   border-radius: 999px;
   border: 1px solid rgba(90, 61, 43, 0.25);
   background: rgba(255, 255, 255, 0.85);
@@ -263,6 +268,14 @@
   box-shadow: 0 10px 20px rgba(90, 61, 43, 0.16);
 }
 
+.amountButton:focus-visible,
+.buttonPrimary:focus-visible,
+.input:focus-visible,
+.textarea:focus-visible {
+  outline: 2px solid rgba(229, 119, 30, 0.45);
+  outline-offset: 2px;
+}
+
 .amountButtonActive {
   background: rgba(255, 236, 180, 0.8);
   border-color: rgba(90, 61, 43, 0.35);
@@ -273,7 +286,7 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-height: 40px;
+  min-height: 44px;
   border: 1px solid rgba(90, 61, 43, 0.25);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.85);
@@ -329,6 +342,11 @@
   outline: none;
 }
 
+.customInput:focus-visible {
+  outline: 2px solid rgba(229, 119, 30, 0.45);
+  outline-offset: 2px;
+}
+
 .customInput::-webkit-outer-spin-button,
 .customInput::-webkit-inner-spin-button {
   -webkit-appearance: none;
@@ -345,11 +363,14 @@
 }
 
 .buttonPrimary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--retro-cocoa);
   color: #f8f1e4;
   border: none;
   border-radius: 999px;
-  height: 38px;
+  min-height: 44px;
   padding: 0 18px;
   font-weight: 500;
   font-size: 14px;
@@ -397,25 +418,85 @@
 }
 
 @media (max-width: 700px) {
+  .container {
+    padding: 46px 16px 76px;
+    gap: 18px;
+  }
+
+  .header {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .tagline {
+    position: static;
+    transform: none;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .backLink {
+    margin-top: 0;
+  }
+
   .title {
     font-size: 26px;
   }
 
   .card {
-    padding: 20px;
+    padding: 18px 14px;
+    border-radius: 18px;
+    gap: 14px;
+  }
+
+  .metaRow {
+    gap: 8px;
+    font-size: 12px;
+  }
+
+  .pill {
+    padding: 6px 10px;
   }
 
   .amountButton {
-    min-width: 72px;
-    height: 38px;
+    min-width: 0;
+    width: 100%;
     padding: 0 12px;
   }
 
+  .amountGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
   .customAmount {
-    min-width: 140px;
+    min-width: 0;
+    width: 100%;
+    grid-column: 1 / -1;
   }
 
   .customInput {
-    width: 48px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .row {
+    grid-template-columns: 1fr;
+  }
+
+  .buttonRow {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .buttonPrimary {
+    width: 100%;
+  }
+
+  .listItem {
+    padding: 12px;
+    border-radius: 14px;
   }
 }

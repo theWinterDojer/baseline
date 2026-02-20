@@ -135,6 +135,9 @@
   box-shadow: 0 26px 60px rgba(90, 61, 43, 0.18);
   backdrop-filter: blur(6px) saturate(120%);
   animation: floatIn 0.9s ease forwards;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .panelHeading {
@@ -598,6 +601,16 @@
   align-items: center;
 }
 
+.headerActions {
+  justify-content: flex-end;
+}
+
+.userPill {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .buttonPrimary {
   background: var(--retro-cocoa);
   color: #f8f1e4;
@@ -989,6 +1002,11 @@
     justify-content: flex-start;
   }
 
+  .headerActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
   .tagline {
     text-align: left;
     white-space: normal;
@@ -997,11 +1015,12 @@
 
 @media (max-width: 600px) {
   .container {
-    padding: 48px 18px 72px;
+    padding: 44px 16px 68px;
   }
 
   .panel {
-    padding: 22px;
+    padding: 20px 16px;
+    border-radius: 20px;
   }
 
   .panelHeading {
@@ -1013,17 +1032,48 @@
   }
 
   .wizardPanel {
-    padding: 14px;
+    padding: 14px 12px;
+    border-radius: 16px;
+  }
+
+  .optionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .optionCard,
+  .categoryCard {
+    min-height: 50px;
+  }
+
+  .presetChip {
+    min-height: 46px;
+    padding-inline: 12px;
+  }
+
+  .input,
+  .select,
+  .textarea {
+    min-height: 46px;
+  }
+
+  .wizardActions {
+    margin-top: 2px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    align-items: stretch;
   }
 
   .wizardActions .buttonGhost,
   .wizardActions .buttonPrimary {
-    flex: 1 1 auto;
+    width: 100%;
+    min-height: 46px;
     justify-content: center;
   }
 
   .footerNote {
-    width: 100%;
+    grid-column: 1 / -1;
+    margin-top: 0;
   }
 
   .activityScrollCard {
@@ -1035,11 +1085,77 @@
   }
 
   .activityScrollCard.scrollCardScrollable {
-    max-height: 156px;
+    max-height: 210px;
   }
 
   .goalsScrollCard.scrollCardScrollable {
-    max-height: 210px;
+    max-height: 260px;
+  }
+
+  .headerActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .headerActions .buttonGhost,
+  .headerActions .linkButton {
+    width: 100%;
+    justify-content: center;
+    min-height: 46px;
+    padding-inline: 12px;
+  }
+
+  .userPill {
+    grid-column: 1 / -1;
+    justify-self: start;
+    max-width: 100%;
+  }
+
+  .notificationCard {
+    padding: 11px 10px;
+    border-radius: 12px;
+  }
+
+  .notificationRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title title"
+      "date link";
+    row-gap: 6px;
+  }
+
+  .notificationTitle {
+    grid-area: title;
+    white-space: normal;
+    line-height: 1.4;
+  }
+
+  .notificationDate {
+    grid-area: date;
+  }
+
+  .notificationLink,
+  .notificationViewMuted {
+    grid-area: link;
+    justify-self: end;
+    padding: 5px 8px;
+    border-radius: 999px;
+  }
+
+  .goalCard {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .goalTitle {
+    font-size: 16px;
+  }
+
+  .goalFoot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
   }
 }
 

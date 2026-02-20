@@ -6,7 +6,7 @@
 > Task status notation for handoffs: `[ ]` = incomplete, `[x]` = complete.
 
 ## Document Metadata
-- Last updated: 2026-02-20 02:13 EST
+- Last updated: 2026-02-20 03:01 EST
 - Owner: Baseline core team
 - Current phase: Pre-P0 polish + production hardening
 - Overall status: At risk until P0 release gates pass
@@ -47,6 +47,7 @@
 
 ## Blocked
 - `CP-001` (partial): WR-08/WR-09 sponsorship+settlement checks remain blocked until sponsor QA wallet has minimum `$5` USDC pledge funds plus Base ETH gas. Owner: dojer. Unblock: fund sponsor QA wallet and execute WR-08/WR-09 on production with tx hash evidence.
+- Sponsorship escrow flow remains partially unverified in production until WR-08/WR-09 complete with evidence: `approve` + `createPledge` + `markCommitmentCompleted` + `settlePledgeBySponsor`.
 - Rule: if blocked > 1 business day, add owner + unblock action + ETA.
 
 ## Decisions Log
@@ -64,6 +65,11 @@
 ## Validation / QA Ledger
 | Date | Area | Result | Evidence / note |
 |---|---|---|---|
+| 2026-02-20 | Mobile card containment safeguard (`CP-003`) | In progress | Added defensive width constraints and horizontal overflow clipping on core card containers to prevent vertical-mobile overflow edge cases: `web/src/app/page.module.css` (`.panel`), `web/src/app/goals/[id]/goal.module.css` (`.card`), `web/src/app/public/goals/[id]/publicGoal.module.css` (`.card`) now enforce `width/max-width: 100%` + `overflow-x: hidden`. `npm run lint` passed. |
+| 2026-02-20 | Sponsorship escrow flow verification status (`CP-001` WR-08/WR-09) | Pending (partial) | Explicitly tracking remaining production escrow lifecycle validation: sponsor `approve` + `createPledge`, then owner/sponsor completion+settlement (`markCommitmentCompleted`, `settlePledgeBySponsor`) with tx hash + DB/event evidence before `CP-001`/`RG-03` close. |
+| 2026-02-20 | Mobile overflow guard follow-up (`CP-003`) | In progress | Added goal-detail mobile overflow hardening for vertical screens with trend/image/check-in content: `web/src/app/goals/[id]/goal.module.css` now enforces min-width containment and wrap behavior for metadata/hash text blocks plus tighter mobile layout; `web/src/components/ProgressTrend.module.css` now enforces chart-shell containment and trend-meta wrapping. `npm run lint` passed. |
+| 2026-02-20 | Wallet/tx error UX hardening (`CP-002`) baseline implementation | In progress | Hardened `web/src/lib/walletErrors.ts` to normalize common wallet/provider failures (cancel/reject, insufficient funds/allowance, pending nonce/replacement, network failures, wrong-network mismatch), redact long hex/signature-like payload fragments, suppress RPC/provider dump leakage, and cap error length for stable UI messaging. `npm run lint` passed. |
+| 2026-02-20 | Mobile optimization pass (`CP-003`) implementation | In progress | Landed responsive/tap-target/scroll ergonomics improvements for dashboard + wizard + public goal in `web/src/app/page.tsx`, `web/src/app/page.module.css`, and `web/src/app/public/goals/[id]/publicGoal.module.css`. `npm run lint` passed. `npm run build` is blocked in sandbox by Google Fonts fetch failures (`Fraunces`, `Manrope`), so manual mobile/desktop screenshot parity evidence is still pending before closing `CP-003`/`RG-05`. |
 | 2026-02-20 | Reconciliation endpoint production deployment verification | Pass | After deploying commit `413a15f`, authenticated checks for new route passed: `GET /api/pledges/reconcile` -> `200` and `POST /api/pledges/reconcile` -> `200`, response `{\"scanned\":0,\"matched\":0,\"drifted\":0,\"drifts\":[]}`. |
 | 2026-02-20 | Supabase parity re-verification after escrow hardening | Pass | User ran updated `supabase/schema.sql` + `supabase/verify.sql`; verification summary returned `00_summary.overall = true` with `197 checks total / 197 checks passed`, including new `pledges.escrow_contract_address`, index coverage, and completion-threshold function semantic guard. |
 | 2026-02-20 | Scheduled automation reliability (`CP-010`) | Pass | Live production cron-auth checks returned `200` for deployed endpoints: `GET /api/discovery/rebuild` -> `{\"updated\":2}`, `GET /api/pledges/expire-overdue` -> `{\"expired\":0,...}`, `GET /api/pledges/settle-overdue` -> `{\"settled\":0,\"skipped\":0,\"failed\":0}`. |
@@ -92,10 +98,10 @@
 - [ ] `KH-001`: Explain `pledges.escrow_contract_address` end-to-end (why it exists, how it is populated, where it is used in settlement/reconciliation, and failure modes).
 
 ## Next Session Handoff (Start Here)
-1. Run WR-08 sponsorship offer in production (sponsor wallet): capture `approve` + `createPledge` tx hashes and goal URL.
-2. Run WR-09 settlement in production (owner + sponsor): capture `markCommitmentCompleted` + `settlePledgeBySponsor` tx hashes and final settled status evidence.
-3. Update QA ledger with WR-08/WR-09 evidence and, if both pass, close `CP-001` + `RG-03`.
-4. Start `CP-002` wallet/tx error UX hardening using any WR failure text/cancel paths discovered during WR-08/WR-09.
+1. Validate `CP-003` responsive patch on production across mobile + desktop and capture before/after screenshots for dashboard (`Your goals` + `Recent activity`), wizard, and public goal sponsor form; if clean, close `CP-003` + `RG-05`.
+2. Run WR-08 sponsorship offer in production (sponsor wallet): capture `approve` + `createPledge` tx hashes and goal URL.
+3. Run WR-09 settlement in production (owner + sponsor): capture `markCommitmentCompleted` + `settlePledgeBySponsor` tx hashes and final settled status evidence.
+4. Update QA ledger with WR-08/WR-09 evidence and, if both pass, close `CP-001` + `RG-03`; then finish `CP-002` by validating wallet error copy against real WR cancel/reject/provider-failure paths and closing `RG-04`.
 
 ## Post-P0 Backlog
 - [ ] `CP-015` (P1): Global copy/content pass for cards/states (`minimum progress` terminology).
@@ -129,6 +135,11 @@
 - [x] New goal `goals.commitment_contract_address` persistence verified.
 
 ## Change Log
+- 2026-02-20 03:01 EST: Added defensive card width/overflow constraints across dashboard/goal/public-goal pages to reduce mobile vertical overflow edge cases; lint passed.
+- 2026-02-20 02:56 EST: Explicitly noted sponsorship escrow lifecycle verification remains pending (`CP-001` WR-08/WR-09) in Blocked + QA ledger until production tx-hash evidence is captured.
+- 2026-02-20 02:41 EST: Added `CP-003` overflow-guard follow-up for goal detail mobile vertical layout (trend/image/check-in content containment + wrapping) with lint evidence.
+- 2026-02-20 02:33 EST: Logged `CP-002` baseline hardening implementation in `web/src/lib/walletErrors.ts` (provider-dump suppression/redaction + concise mapped wallet error copy) with lint evidence; follow-up validation against WR-08/WR-09 error paths still pending.
+- 2026-02-20 02:31 EST: Logged `CP-003` implementation progress (mobile-responsive/tap-target/scroll ergonomics updates on dashboard + wizard + public goal) with lint evidence; noted production screenshot parity and sandbox-limited build verification still pending before closure.
 - 2026-02-20 02:13 EST: Added explicit next-session handoff checklist (WR-08/WR-09 -> CP-001/RG-03 closure -> CP-002 start) and clarified current sponsorship-funding blocker language.
 - 2026-02-20 01:52 EST: Added `KH-001` knowledge-handoff task to explain `pledges.escrow_contract_address` end-to-end for operator clarity.
 - 2026-02-20 01:49 EST: Verified production deployment of `/api/pledges/reconcile` with authenticated `GET`/`POST` returning `200` and zero-drift baseline response.

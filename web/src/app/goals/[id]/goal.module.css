@@ -72,6 +72,7 @@
   padding: 56px 24px 96px;
   display: grid;
   gap: 24px;
+  min-width: 0;
 }
 
 .header {
@@ -108,8 +109,10 @@
 }
 
 .backLink {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   margin-top: 10px;
+  min-height: 40px;
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -124,6 +127,10 @@
   box-shadow: 0 26px 60px rgba(90, 61, 43, 0.18);
   display: grid;
   gap: 18px;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .title {
@@ -158,6 +165,7 @@
 .progressWrap {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .progressBar {
@@ -184,6 +192,7 @@
 .section {
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .sectionTitle {
@@ -196,17 +205,20 @@
 .form {
   display: grid;
   gap: 14px;
+  min-width: 0;
 }
 
 .row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
+  min-width: 0;
 }
 
 .field {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .label {
@@ -270,11 +282,14 @@
 }
 
 .buttonPrimary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--retro-cocoa);
   color: #f8f1e4;
   border: none;
   border-radius: 999px;
-  height: 38px;
+  min-height: 40px;
   padding: 0 18px;
   font-weight: 500;
   font-size: 14px;
@@ -286,7 +301,7 @@
   background: transparent;
   border: 1px solid rgba(90, 61, 43, 0.28);
   border-radius: 999px;
-  height: 38px;
+  min-height: 40px;
   padding: 0 18px;
   font-weight: 500;
   font-size: 12px;
@@ -297,11 +312,14 @@
 }
 
 .buttonDanger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: #8a2f22;
   color: #f8f1e4;
   border: none;
   border-radius: 999px;
-  height: 38px;
+  min-height: 40px;
   padding: 0 18px;
   font-weight: 500;
   font-size: 14px;
@@ -339,11 +357,13 @@
   gap: 16px;
   justify-content: space-between;
   align-items: center;
+  min-width: 0;
 }
 
 .visibilityText {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .visibilityLabel {
@@ -356,6 +376,8 @@
 .visibilityHint {
   font-size: 13px;
   color: #6b5f4a;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message {
@@ -401,6 +423,7 @@
 .list {
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .listItem {
@@ -410,11 +433,14 @@
   border: 1px solid rgba(90, 61, 43, 0.16);
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .listMeta {
   font-size: 12px;
   color: #6b5f4a;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .empty {
@@ -431,6 +457,8 @@
   line-height: 1.5;
   border-top: 1px dashed rgba(90, 61, 43, 0.2);
   padding-top: 12px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .warningBox {
@@ -441,14 +469,91 @@
   border-radius: 12px;
   background: rgba(138, 47, 34, 0.08);
   padding: 10px 12px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 @media (max-width: 700px) {
+  .container {
+    padding: 46px 16px 76px;
+    gap: 18px;
+  }
+
+  .header {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .tagline {
+    position: static;
+    transform: none;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .backLink {
+    margin-top: 0;
+  }
+
   .title {
     font-size: 26px;
   }
 
   .card {
-    padding: 20px;
+    padding: 18px 14px;
+    border-radius: 18px;
+    gap: 14px;
+  }
+
+  .metaRow {
+    gap: 8px;
+    font-size: 12px;
+  }
+
+  .pill {
+    padding: 6px 10px;
+  }
+
+  .row {
+    grid-template-columns: 1fr;
+  }
+
+  .input,
+  .textarea {
+    min-height: 46px;
+  }
+
+  .buttonRow {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .buttonPrimary,
+  .buttonGhost,
+  .buttonDanger {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .quickValueButton {
+    min-height: 38px;
+    height: auto;
+  }
+
+  .visibilityRow {
+    display: grid;
+    gap: 12px;
+    justify-content: stretch;
+  }
+
+  .imagePreview,
+  .checkInImage {
+    max-width: 100%;
+  }
+
+  .listItem {
+    padding: 12px;
+    border-radius: 14px;
   }
 }
