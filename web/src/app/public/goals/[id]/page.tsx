@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
-import { erc20Abi, type Address, type Hex } from "viem";
+import { erc20Abi, isAddress, type Address, type Hex } from "viem";
 import { base } from "viem/chains";
 import { useAccount, useChainId, usePublicClient, useWalletClient } from "wagmi";
 import { BASELINE_TAGLINE } from "@/lib/brand";
@@ -89,6 +89,7 @@ type SponsorPledge = {
   escrow_tx: string | null;
   onchain_pledge_id: string | null;
   escrow_chain_id: number | null;
+  escrow_contract_address: string | null;
   escrow_token_address: string | null;
   escrow_amount_raw: string | null;
   settlement_tx: string | null;
@@ -400,7 +401,7 @@ export default function PublicGoalPage() {
     const { data, error: pledgeError } = await supabase
       .from("pledges")
       .select(
-        "id,amount_cents,deadline_at,min_check_ins,status,accepted_at,approval_at,settled_at,escrow_tx,onchain_pledge_id,escrow_chain_id,escrow_token_address,escrow_amount_raw,settlement_tx,created_at"
+        "id,amount_cents,deadline_at,min_check_ins,status,accepted_at,approval_at,settled_at,escrow_tx,onchain_pledge_id,escrow_chain_id,escrow_contract_address,escrow_token_address,escrow_amount_raw,settlement_tx,created_at"
       )
       .eq("goal_id", id)
       .eq("sponsor_id", userId)
@@ -539,12 +540,18 @@ export default function PublicGoalPage() {
     }
 
     let settlementTx: Hex | null = null;
+    let settlementContractAddress: Address | null = null;
 
     const hasOnchainPledge = Boolean(approvedPledge.onchain_pledge_id);
 
     if (HAS_HABIT_REGISTRY_ADDRESS_CONFIG && hasOnchainPledge) {
-      if (!HABIT_REGISTRY_ADDRESS) {
-        setSponsorError("Invalid NEXT_PUBLIC_HABIT_REGISTRY_ADDRESS.");
+      const onchainEscrowContractAddress = approvedPledge.escrow_contract_address;
+      if (onchainEscrowContractAddress && isAddress(onchainEscrowContractAddress)) {
+        settlementContractAddress = onchainEscrowContractAddress;
+      } else if (HABIT_REGISTRY_ADDRESS) {
+        settlementContractAddress = HABIT_REGISTRY_ADDRESS;
+      } else {
+        setSponsorError("Missing/invalid escrow contract address for on-chain settlement.");
         setApprovingId(null);
         return;
       }
@@ -575,7 +582,7 @@ export default function PublicGoalPage() {
       try {
         const simulation = await publicClient.simulateContract({
           account: connectedAddress as Address,
-          address: HABIT_REGISTRY_ADDRESS,
+          address: settlementContractAddress,
           abi: habitRegistryAbi,
           functionName: "settlePledgeBySponsor",
           args: [onchainPledgeId],
@@ -603,6 +610,9 @@ export default function PublicGoalPage() {
         approval_at: new Date().toISOString(),
         settled_at: new Date().toISOString(),
         settlement_tx: settlementTx,
+        ...(settlementContractAddress
+          ? { escrow_contract_address: settlementContractAddress }
+          : {}),
       })
       .eq("id", pledgeId);
 
@@ -703,6 +713,7 @@ export default function PublicGoalPage() {
     let escrowTx: Hex | null = null;
     let onchainPledgeId: string | null = null;
     let escrowChainId: number | null = null;
+    let escrowContractAddress: string | null = null;
     let escrowTokenAddress: string | null = null;
     let escrowAmountRaw: string | null = null;
 
@@ -781,6 +792,7 @@ export default function PublicGoalPage() {
         status = "accepted";
         acceptedAt = new Date().toISOString();
         escrowChainId = BASE_MAINNET_CHAIN_ID;
+        escrowContractAddress = HABIT_REGISTRY_ADDRESS;
         escrowTokenAddress = BASE_USDC_ADDRESS;
         escrowAmountRaw = amountRaw.toString();
       } catch (onchainError) {
@@ -809,6 +821,7 @@ export default function PublicGoalPage() {
         escrow_tx: escrowTx,
         onchain_pledge_id: onchainPledgeId,
         escrow_chain_id: escrowChainId,
+        escrow_contract_address: escrowContractAddress,
         escrow_token_address: escrowTokenAddress,
         escrow_amount_raw: escrowAmountRaw,
       })

@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import { createPublicClient, createWalletClient, http, type Hex } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  isAddress,
+  type Address,
+  type Hex,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { habitRegistryAbi } from "@/lib/contracts";
@@ -30,6 +37,7 @@ type PledgeRow = {
   min_check_ins: number | null;
   deadline_at: string;
   onchain_pledge_id: string | null;
+  escrow_contract_address: string | null;
   status: "offered" | "accepted" | "settled" | "expired" | "cancelled";
   settled_at: string | null;
 };
@@ -38,6 +46,27 @@ type GoalRow = {
   id: string;
   user_id: string;
   completed_at: string | null;
+  commitment_contract_address: string | null;
+};
+
+const resolveEscrowContractAddress = (
+  pledge: PledgeRow,
+  goal: GoalRow | undefined,
+  defaultAddress: Address | null
+): Address | null => {
+  const candidates = [
+    pledge.escrow_contract_address,
+    goal?.commitment_contract_address ?? null,
+    defaultAddress,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && isAddress(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
 };
 
 const unauthorized = () =>
@@ -66,13 +95,6 @@ const settleOverduePledges = async () => {
     );
   }
 
-  if (!HABIT_REGISTRY_ADDRESS) {
-    return NextResponse.json(
-      { error: "Missing/invalid NEXT_PUBLIC_HABIT_REGISTRY_ADDRESS." },
-      { status: 500 }
-    );
-  }
-
   const relayerPrivateKeyRaw = process.env.PLEDGE_SETTLER_PRIVATE_KEY;
   if (!/^0x[a-fA-F0-9]{64}$/.test(relayerPrivateKeyRaw ?? "")) {
     return NextResponse.json(
@@ -89,30 +111,43 @@ const settleOverduePledges = async () => {
     chain: base,
     transport,
   });
-  let reviewWindowMs = REVIEW_WINDOW_MS;
-  try {
-    const reviewWindowSeconds = await publicClient.readContract({
-      address: HABIT_REGISTRY_ADDRESS,
-      abi: habitRegistryAbi,
-      functionName: "reviewWindowSeconds",
-      args: [],
-    });
-    const maxSafeSeconds = Math.floor(Number.MAX_SAFE_INTEGER / 1000);
-    if (
-      typeof reviewWindowSeconds === "bigint" &&
-      reviewWindowSeconds > BigInt(0) &&
-      reviewWindowSeconds <= BigInt(maxSafeSeconds)
-    ) {
-      reviewWindowMs = Number(reviewWindowSeconds) * 1000;
+  const defaultEscrowContractAddress = HABIT_REGISTRY_ADDRESS;
+  const reviewWindowByContract = new Map<Address, number>();
+
+  const getReviewWindowMs = async (contractAddress: Address) => {
+    const cached = reviewWindowByContract.get(contractAddress);
+    if (typeof cached === "number") {
+      return cached;
     }
-  } catch {
-    // Fallback to default review window if contract read is unavailable.
-  }
+
+    let reviewWindowMs = REVIEW_WINDOW_MS;
+    try {
+      const reviewWindowSeconds = await publicClient.readContract({
+        address: contractAddress,
+        abi: habitRegistryAbi,
+        functionName: "reviewWindowSeconds",
+        args: [],
+      });
+      const maxSafeSeconds = Math.floor(Number.MAX_SAFE_INTEGER / 1000);
+      if (
+        typeof reviewWindowSeconds === "bigint" &&
+        reviewWindowSeconds > BigInt(0) &&
+        reviewWindowSeconds <= BigInt(maxSafeSeconds)
+      ) {
+        reviewWindowMs = Number(reviewWindowSeconds) * 1000;
+      }
+    } catch {
+      // Fallback to default review window if contract read is unavailable.
+    }
+
+    reviewWindowByContract.set(contractAddress, reviewWindowMs);
+    return reviewWindowMs;
+  };
 
   const { data: pledges, error: pledgesError } = await supabaseAdmin
     .from("pledges")
     .select(
-      "id,goal_id,sponsor_id,amount_cents,min_check_ins,deadline_at,onchain_pledge_id,status,settled_at"
+      "id,goal_id,sponsor_id,amount_cents,min_check_ins,deadline_at,onchain_pledge_id,escrow_contract_address,status,settled_at"
     )
     .eq("status", "accepted")
     .is("settled_at", null)
@@ -130,7 +165,7 @@ const settleOverduePledges = async () => {
   const goalIds = [...new Set(pledgeRows.map((pledge) => pledge.goal_id))];
   const { data: goals, error: goalsError } = await supabaseAdmin
     .from("goals")
-    .select("id,user_id,completed_at")
+    .select("id,user_id,completed_at,commitment_contract_address")
     .in("id", goalIds);
 
   if (goalsError) {
@@ -155,6 +190,22 @@ const settleOverduePledges = async () => {
       continue;
     }
 
+    const escrowContractAddress = resolveEscrowContractAddress(
+      pledge,
+      goal,
+      defaultEscrowContractAddress
+    );
+    if (!escrowContractAddress) {
+      failed += 1;
+      failures.push({
+        pledgeId: pledge.id,
+        error: "Missing valid escrow contract address for settlement.",
+      });
+      continue;
+    }
+
+    const reviewWindowMs = await getReviewWindowMs(escrowContractAddress);
+
     const completedAtMs = new Date(goal.completed_at).getTime();
     const deadlineMs = new Date(pledge.deadline_at).getTime();
     const reviewExpired =
@@ -178,7 +229,7 @@ const settleOverduePledges = async () => {
     try {
       const simulation = await publicClient.simulateContract({
         account: relayerAccount.address,
-        address: HABIT_REGISTRY_ADDRESS,
+        address: escrowContractAddress,
         abi: habitRegistryAbi,
         functionName: "settlePledgeNoResponse",
         args: [onchainPledgeId],
@@ -195,6 +246,7 @@ const settleOverduePledges = async () => {
           status: "settled",
           settled_at: settledAtIso,
           settlement_tx: txHash,
+          escrow_contract_address: escrowContractAddress,
         })
         .eq("id", pledge.id);
 

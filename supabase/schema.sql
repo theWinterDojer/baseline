@@ -44,6 +44,11 @@ declare
   has_pledges boolean;
   changed_privacy boolean;
   changed_progress_rollups boolean;
+  completion_requested boolean;
+  completion_target numeric;
+  completion_start_snapshot double precision;
+  latest_snapshot_value double precision;
+  is_snapshot_goal boolean;
   other_changes boolean;
 begin
   select exists (
@@ -83,6 +88,70 @@ begin
     or new.milestones is distinct from old.milestones
     or new.tags is distinct from old.tags
   );
+
+  completion_requested := (
+    (old.completed_at is null and new.completed_at is not null)
+    or (old.status is distinct from 'completed' and new.status = 'completed')
+  );
+
+  if completion_requested then
+    if new.goal_type is not null then
+      is_snapshot_goal := coalesce(new.count_unit_preset, '') in (
+        'bodyweight_logged',
+        'pounds_lost',
+        'pounds_gained'
+      );
+
+      if is_snapshot_goal then
+        completion_target := coalesce(
+          new.cadence_target_value::numeric,
+          new.target_value::numeric,
+          new.total_target_value::numeric
+        );
+        completion_start_snapshot := new.start_snapshot_value;
+
+        select c.progress_snapshot_value
+        into latest_snapshot_value
+        from public.check_ins c
+        where c.goal_id = old.id
+          and c.progress_snapshot_value is not null
+        order by c.check_in_at desc, c.created_at desc
+        limit 1;
+
+        if completion_target is null
+          or completion_target <= 0
+          or completion_start_snapshot is null
+          or latest_snapshot_value is null
+        then
+          raise exception 'Goal cannot be marked complete before reaching 100 percent progress.';
+        end if;
+
+        if completion_target = completion_start_snapshot then
+          if latest_snapshot_value <> completion_target then
+            raise exception 'Goal cannot be marked complete before reaching 100 percent progress.';
+          end if;
+        elsif completion_target > completion_start_snapshot then
+          if latest_snapshot_value < completion_target then
+            raise exception 'Goal cannot be marked complete before reaching 100 percent progress.';
+          end if;
+        elsif latest_snapshot_value > completion_target then
+          raise exception 'Goal cannot be marked complete before reaching 100 percent progress.';
+        end if;
+      else
+        completion_target := coalesce(
+          new.total_target_value::numeric,
+          new.target_value::numeric
+        );
+
+        if completion_target is null
+          or completion_target <= 0
+          or coalesce(new.total_progress_value::numeric, 0) < completion_target
+        then
+          raise exception 'Goal cannot be marked complete before reaching 100 percent progress.';
+        end if;
+      end if;
+    end if;
+  end if;
 
   if has_pledges then
     if changed_privacy or other_changes then
@@ -481,6 +550,7 @@ create table if not exists public.pledges (
   escrow_tx text,
   onchain_pledge_id text,
   escrow_chain_id integer,
+  escrow_contract_address text,
   escrow_token_address text,
   escrow_amount_raw text,
   settlement_tx text,
@@ -493,6 +563,7 @@ create table if not exists public.pledges (
 alter table public.pledges
   add column if not exists onchain_pledge_id text,
   add column if not exists escrow_chain_id integer,
+  add column if not exists escrow_contract_address text,
   add column if not exists escrow_token_address text,
   add column if not exists escrow_amount_raw text,
   add column if not exists settlement_tx text;
@@ -565,6 +636,8 @@ create index if not exists pledges_sponsor_id_idx on public.pledges(sponsor_id);
 create index if not exists pledges_status_idx on public.pledges(status);
 create index if not exists pledges_deadline_at_idx on public.pledges(deadline_at);
 create index if not exists pledges_onchain_pledge_id_idx on public.pledges(onchain_pledge_id);
+create index if not exists pledges_escrow_contract_address_idx
+on public.pledges(escrow_contract_address);
 
 create index if not exists sponsor_criteria_pledge_id_idx on public.sponsor_criteria(pledge_id);
 

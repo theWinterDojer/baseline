@@ -24,6 +24,7 @@ declare
   bucket_size bigint;
   bucket_mimes text[];
   progress_unit_constraint text;
+  goal_update_policy_fn text;
   required_bucket_mimes text[] := array[
     'image/jpeg',
     'image/png',
@@ -124,6 +125,7 @@ begin
         ('pledges', 'min_check_ins'),
         ('pledges', 'onchain_pledge_id'),
         ('pledges', 'escrow_chain_id'),
+        ('pledges', 'escrow_contract_address'),
         ('pledges', 'escrow_token_address'),
         ('pledges', 'escrow_amount_raw'),
         ('pledges', 'settlement_tx'),
@@ -164,6 +166,7 @@ begin
         ('check_ins', 'onchain_submitted_at', 'timestamp with time zone'),
         ('pledges', 'escrow_chain_id', 'integer'),
         ('pledges', 'onchain_pledge_id', 'text'),
+        ('pledges', 'escrow_contract_address', 'text'),
         ('pledges', 'escrow_token_address', 'text'),
         ('pledges', 'escrow_amount_raw', 'text'),
         ('pledges', 'settlement_tx', 'text'),
@@ -345,6 +348,7 @@ begin
         ('public.pledges_status_idx'),
         ('public.pledges_deadline_at_idx'),
         ('public.pledges_onchain_pledge_id_idx'),
+        ('public.pledges_escrow_contract_address_idx'),
         ('public.sponsor_criteria_pledge_id_idx'),
         ('public.comments_goal_id_idx'),
         ('public.comments_author_id_idx'),
@@ -483,7 +487,25 @@ begin
     'check_ins_update_owner WITH CHECK must enforce goal ownership via EXISTS.'
   );
 
-  -- 14) Storage bucket checks
+  -- 14) Hardened behavior check: goal completion requires 100% progress
+  select lower(pg_get_functiondef(p.oid))
+  into goal_update_policy_fn
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname = 'enforce_goal_update_policy'
+  limit 1;
+
+  perform pg_temp.assert_true(
+    goal_update_policy_fn is not null
+      and position(
+        'goal cannot be marked complete before reaching 100 percent progress.'
+        in goal_update_policy_fn
+      ) > 0,
+    'enforce_goal_update_policy must enforce 100 percent completion threshold server-side.'
+  );
+
+  -- 15) Storage bucket checks
   select b.public, b.file_size_limit, b.allowed_mime_types
   into bucket_public, bucket_size, bucket_mimes
   from storage.buckets b
@@ -506,7 +528,7 @@ begin
     'Storage bucket checkin-images allowed_mime_types is missing one or more required image MIME types.'
   );
 
-  -- 15) Storage policy semantics check (insert policy)
+  -- 16) Storage policy semantics check (insert policy)
   select coalesce(p.qual, ''), coalesce(p.with_check, '')
   into policy_using, policy_check
   from pg_policies p
@@ -609,6 +631,7 @@ required_columns(table_name, column_name) as (
     ('pledges', 'min_check_ins'),
     ('pledges', 'onchain_pledge_id'),
     ('pledges', 'escrow_chain_id'),
+    ('pledges', 'escrow_contract_address'),
     ('pledges', 'escrow_token_address'),
     ('pledges', 'escrow_amount_raw'),
     ('pledges', 'settlement_tx'),
@@ -634,6 +657,7 @@ required_column_types(table_name, column_name, expected_data_type, expected_udt_
     ('check_ins', 'onchain_submitted_at', 'timestamp with time zone', null),
     ('pledges', 'escrow_chain_id', 'integer', null),
     ('pledges', 'onchain_pledge_id', 'text', null),
+    ('pledges', 'escrow_contract_address', 'text', null),
     ('pledges', 'escrow_token_address', 'text', null),
     ('pledges', 'escrow_amount_raw', 'text', null),
     ('pledges', 'settlement_tx', 'text', null),
@@ -700,6 +724,7 @@ required_indexes(index_name) as (
     ('public.pledges_status_idx'),
     ('public.pledges_deadline_at_idx'),
     ('public.pledges_onchain_pledge_id_idx'),
+    ('public.pledges_escrow_contract_address_idx'),
     ('public.sponsor_criteria_pledge_id_idx'),
     ('public.comments_goal_id_idx'),
     ('public.comments_author_id_idx'),
@@ -775,6 +800,14 @@ policy_checkins_update as (
   where schemaname = 'public'
     and tablename = 'check_ins'
     and policyname = 'check_ins_update_owner'
+),
+goal_update_policy_function as (
+  select lower(pg_get_functiondef(p.oid)) as definition
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname = 'enforce_goal_update_policy'
+  limit 1
 ),
 policy_storage_insert as (
   select
@@ -1077,6 +1110,23 @@ report_rows as (
     'WITH CHECK enforces auth.uid() + goal ownership',
     pcu.with_check_expr
   from policy_checkins_update pcu
+
+  union all
+
+  -- Hardened completion threshold enforcement semantic
+  select
+    '11_function_semantic'::text,
+    'public.enforce_goal_update_policy.completion_threshold_guard',
+    coalesce(
+      position(
+        'goal cannot be marked complete before reaching 100 percent progress.'
+        in gupf.definition
+      ),
+      0
+    ) > 0,
+    'function contains 100 percent completion threshold guard',
+    coalesce(gupf.definition, 'missing')
+  from goal_update_policy_function gupf
 
   union all
 

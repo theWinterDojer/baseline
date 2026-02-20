@@ -68,6 +68,24 @@ export const habitRegistryAbi = [
     inputs: [{ name: "pledgeId", type: "uint256" }],
     outputs: [],
   },
+  {
+    type: "function",
+    name: "pledges",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [
+      { name: "commitmentId", type: "uint256" },
+      { name: "sponsor", type: "address" },
+      { name: "beneficiary", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "deadline", type: "uint256" },
+      { name: "minCheckIns", type: "uint256" },
+      { name: "createdAt", type: "uint256" },
+      { name: "settledAt", type: "uint256" },
+      { name: "status", type: "uint8" },
+      { name: "exists", type: "bool" },
+    ],
+  },
 ] as const;
 
 export type HabitRegistryAbi = typeof habitRegistryAbi;
