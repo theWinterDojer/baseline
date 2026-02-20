@@ -6,7 +6,7 @@
 > Task status notation for handoffs: `[ ]` = incomplete, `[x]` = complete.
 
 ## Document Metadata
-- Last updated: 2026-02-20 01:42 EST
+- Last updated: 2026-02-20 01:49 EST
 - Owner: Baseline core team
 - Current phase: Pre-P0 polish + production hardening
 - Overall status: At risk until P0 release gates pass
@@ -64,6 +64,7 @@
 ## Validation / QA Ledger
 | Date | Area | Result | Evidence / note |
 |---|---|---|---|
+| 2026-02-20 | Reconciliation endpoint production deployment verification | Pass | After deploying commit `413a15f`, authenticated checks for new route passed: `GET /api/pledges/reconcile` -> `200` and `POST /api/pledges/reconcile` -> `200`, response `{\"scanned\":0,\"matched\":0,\"drifted\":0,\"drifts\":[]}`. |
 | 2026-02-20 | Supabase parity re-verification after escrow hardening | Pass | User ran updated `supabase/schema.sql` + `supabase/verify.sql`; verification summary returned `00_summary.overall = true` with `197 checks total / 197 checks passed`, including new `pledges.escrow_contract_address`, index coverage, and completion-threshold function semantic guard. |
 | 2026-02-20 | Scheduled automation reliability (`CP-010`) | Pass | Live production cron-auth checks returned `200` for deployed endpoints: `GET /api/discovery/rebuild` -> `{\"updated\":2}`, `GET /api/pledges/expire-overdue` -> `{\"expired\":0,...}`, `GET /api/pledges/settle-overdue` -> `{\"settled\":0,\"skipped\":0,\"failed\":0}`. |
 | 2026-02-20 | Manual fallback endpoint/auth validation (`CP-011`) | Pass | Live production key-auth checks returned `200` for manual triggers: `POST /api/discovery/rebuild`, `POST /api/pledges/expire-overdue`, and `POST /api/pledges/settle-overdue`. |
@@ -119,6 +120,7 @@
 - [x] New goal `goals.commitment_contract_address` persistence verified.
 
 ## Change Log
+- 2026-02-20 01:49 EST: Verified production deployment of `/api/pledges/reconcile` with authenticated `GET`/`POST` returning `200` and zero-drift baseline response.
 - 2026-02-20 01:42 EST: Logged Supabase post-hardening re-verification evidence (`supabase/verify.sql` 197/197 checks passed) after applying updated schema scripts.
 - 2026-02-20 01:23 EST: Marked `CP-010`, `CP-011`, and `RG-07` complete after live authenticated endpoint checks against production for cron/manual rebuild+expire+settle routes.
 - 2026-02-20 01:12 EST: Marked `CP-009` + `RG-06` complete after landing escrow hardening work (`escrow_contract_address`, server-side completion threshold enforcement, and `/api/pledges/reconcile`) with lint/typecheck evidence.
